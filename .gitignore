@@ -1,0 +1,20 @@
+node_modules/
+dist/
+.turbo/
+coverage/
+
+# Angular
+.angular/
+apps/portal/dist/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
