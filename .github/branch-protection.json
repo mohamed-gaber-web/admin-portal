@@ -1,0 +1,12 @@
+{
+  "_comment": "Desired branch-protection state for `main`. Apply with the gh command in the README. The single required check is `ci-success`, which aggregates lint/typecheck/test/build/db-migrations.",
+  "required_status_checks": {
+    "strict": true,
+    "contexts": ["ci-success"]
+  },
+  "enforce_admins": true,
+  "required_pull_request_reviews": {
+    "required_approving_review_count": 1
+  },
+  "restrictions": null
+}

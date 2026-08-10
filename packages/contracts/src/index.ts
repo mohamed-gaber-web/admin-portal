@@ -1,15 +1,10 @@
 /**
- * Shared contracts consumed by both apps/api and apps/portal.
- * Changing anything here should trigger dependents to rebuild (AC2).
+ * Single source of truth for DTOs shared across the API, portal, and mobile app.
+ * Schemas are Zod; the TypeScript types are inferred from them, so a schema
+ * change surfaces in consumers at compile time (not runtime).
  */
+export { z } from "zod";
 
-/** Response shape returned by the API's health endpoint. */
-export interface HealthStatus {
-  status: "ok";
-  service: string;
-}
-
-/** Well-known route paths shared between the API and the portal. */
-export const API_ROUTES = {
-  health: "/health"
-} as const;
+export * from "./routes";
+export * from "./schemas/health";
+export * from "./schemas/tenant";

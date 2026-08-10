@@ -2,6 +2,19 @@ node_modules/
 dist/
 .turbo/
 coverage/
+*.tsbuildinfo
+
+# Local env (never commit real credentials)
+.env
+.env.*
+!.env.example
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
 
 # Angular
 .angular/

@@ -26,4 +26,15 @@ pnpm typecheck    # tsc --noEmit across every workspace
 pnpm test         # acceptance-criterion tests (vitest)
 ```
 
-CI (`.github/workflows/ci.yml`) runs `lint` and `typecheck` across every workspace on each pull request.
+## CI
+
+`.github/workflows/ci.yml` runs on every pull request as independent jobs — `lint`, `typecheck`, `test` (with a throwaway Postgres), `build`, and `db-migrations` — aggregated by a single `ci-success` gate job. Add future guard-rail jobs and list them in the gate's `needs`.
+
+### Branch protection (blocks merges on failing checks)
+
+Merge-blocking is enforced by GitHub branch protection requiring the `ci-success` check. Desired state lives in `.github/branch-protection.json`; apply it once per repo (needs admin + `gh` authenticated):
+
+```bash
+gh api -X PUT repos/:owner/:repo/branches/main/protection \
+  --input .github/branch-protection.json
+```
