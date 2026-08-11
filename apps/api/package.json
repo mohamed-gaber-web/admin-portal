@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@growpath/contracts": "workspace:*",
+    "@growpath/db": "workspace:*",
+    "pg": "^8.13.1",
     "@nestjs/common": "^10.4.4",
     "@nestjs/core": "^10.4.4",
     "@nestjs/platform-express": "^10.4.4",
@@ -24,6 +26,7 @@
     "@nestjs/schematics": "^10.1.4",
     "@types/express": "^5.0.0",
     "@types/node": "^20.16.11",
+    "@types/pg": "^8.11.10",
     "typescript": "^5.6.3"
   }
 }

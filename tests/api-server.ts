@@ -11,7 +11,10 @@ export interface RunningApi {
  * Builds the API (turbo builds @growpath/contracts first) and starts the real
  * compiled server on the given port, resolving once /health responds.
  */
-export async function startApi(port: number): Promise<RunningApi> {
+export async function startApi(
+  port: number,
+  env: NodeJS.ProcessEnv = {}
+): Promise<RunningApi> {
   // execSync runs through the shell, which is required to invoke pnpm.cmd on Windows.
   execSync("pnpm exec turbo run build --filter=@growpath/api", {
     cwd: repoRoot,
@@ -20,7 +23,8 @@ export async function startApi(port: number): Promise<RunningApi> {
 
   const server: ChildProcess = spawn(process.execPath, [join(repoRoot, "apps/api/dist/main.js")], {
     cwd: repoRoot,
-    env: { ...process.env, PORT: String(port) },
+    // Caller overrides win, so a test can point the API at a throwaway database.
+    env: { ...process.env, PORT: String(port), ...env },
     stdio: "ignore"
   });
 

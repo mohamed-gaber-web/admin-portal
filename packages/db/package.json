@@ -10,7 +10,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "migrate:up": "node-pg-migrate up",
     "migrate:down": "node-pg-migrate down",
-    "migrate:create": "node-pg-migrate create"
+    "migrate:create": "node-pg-migrate create",
+    "preflight": "node dist/preflight-cli.js",
+    "seed": "node dist/seed-cli.js"
   },
   "dependencies": {
     "node-pg-migrate": "^7.7.1",

@@ -113,6 +113,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Run migrations up (throwaway DB)
         run: pnpm --filter @growpath/db migrate:up
+      - name: Seed demo data (throwaway DB)
+        run: pnpm --filter @growpath/db build && pnpm --filter @growpath/db seed
       - name: Roll back migrations (throwaway DB)
         run: pnpm --filter @growpath/db migrate:down
 

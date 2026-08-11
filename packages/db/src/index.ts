@@ -1,2 +1,59 @@
 export { createPool } from "./pool";
 export { MIGRATIONS_DIR, MIGRATIONS_TABLE, PACKAGE_ROOT } from "./config";
+export { REPO_ROOT, loadRepoEnv } from "./env";
+export { checkDatabase, redactUrl, type DatabaseInfo } from "./preflight";
+export {
+  recordAuditEntry,
+  listAuditEntries,
+  redactValues,
+  changedFields,
+  isSecretKey,
+  REDACTED,
+  type AuditActor,
+  type AuditEntry,
+  type AuditValues,
+  type RecordAuditEntryInput
+} from "./audit";
+export {
+  provisionTenant,
+  defaultAdminEmail,
+  TenantAlreadyExistsError,
+  DEFAULT_ROLES,
+  DEFAULT_ADMIN_ROLE,
+  type ProvisionTenantInput,
+  type ProvisionTenantResult
+} from "./provisioning";
+export {
+  withTenantContext,
+  setTenantContext,
+  findTablesMissingRlsPolicies,
+  PROTECTED_TABLES,
+  TENANT_SCOPED_TABLES,
+  ROOT_TENANT_TABLE,
+  TENANT_CONTEXT_SETTING,
+  type UnprotectedTable
+} from "./rls";
+export {
+  createTenant,
+  createEnvironment,
+  createCompany,
+  listCompaniesForEnvironment,
+  listEnvironmentsForTenant,
+  listActiveTenants,
+  findTenant,
+  softDeleteTenant,
+  restoreTenant,
+  type Tenant,
+  type Environment,
+  type Company,
+  type Queryable
+} from "./tenancy";
+export {
+  seedDemoData,
+  DEMO_TENANTS,
+  DEMO_PERMISSIONS,
+  type DemoTenant,
+  type DemoUser,
+  type DemoAuditEntry,
+  type SeedSummary
+} from "./seed";
