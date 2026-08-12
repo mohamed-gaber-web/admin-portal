@@ -2,12 +2,18 @@ import { Body, Controller, Headers, HttpCode, Ip, Post } from "@nestjs/common";
 import {
   API_ROUTES,
   acceptInvitationSchema,
+  completePasswordResetSchema,
   refreshSchema,
+  requestPasswordResetSchema,
   signInSchema,
   type AcceptInvitationInput,
   type AcceptedInvitation,
   type Authenticated,
+  type CompletePasswordResetInput,
+  type PasswordResetCompleted,
+  type PasswordResetRequested,
   type RefreshInput,
+  type RequestPasswordResetInput,
   type SignInInput
 } from "@growpath/contracts";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
@@ -64,5 +70,33 @@ export class AuthController {
     @Headers("user-agent") userAgent: string
   ): Promise<Authenticated> {
     return this.auth.refresh(dto, ip || null, userAgent || null);
+  }
+
+  /**
+   * Asks for a reset link.
+   *
+   * 202, and the same 202 whether or not the address exists — the status code
+   * is part of the response, so varying it would leak exactly what the fixed
+   * body is there to hide.
+   */
+  @Post(API_ROUTES.requestPasswordReset)
+  @HttpCode(202)
+  requestPasswordReset(
+    @Body(new ZodValidationPipe(requestPasswordResetSchema)) dto: RequestPasswordResetInput,
+    @Ip() ip: string,
+    @Headers("user-agent") userAgent: string
+  ): Promise<PasswordResetRequested> {
+    return this.auth.requestPasswordReset(dto, ip || null, userAgent || null);
+  }
+
+  /** Redeems a reset link and sets a new password. */
+  @Post(API_ROUTES.completePasswordReset)
+  @HttpCode(200)
+  completePasswordReset(
+    @Body(new ZodValidationPipe(completePasswordResetSchema)) dto: CompletePasswordResetInput,
+    @Ip() ip: string,
+    @Headers("user-agent") userAgent: string
+  ): Promise<PasswordResetCompleted> {
+    return this.auth.completePasswordReset(dto, ip || null, userAgent || null);
   }
 }

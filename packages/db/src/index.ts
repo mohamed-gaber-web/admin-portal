@@ -23,6 +23,16 @@ export {
   type UnscopedAccessOptions
 } from "./scoping";
 export {
+  requestPasswordReset,
+  completePasswordReset,
+  generateResetToken,
+  hashResetToken,
+  InvalidPasswordResetError,
+  DEFAULT_RESET_TTL_HOURS,
+  type IssuedPasswordReset,
+  type CompletedPasswordReset
+} from "./password-reset";
+export {
   issueRefreshToken,
   rotateRefreshToken,
   revokeRefreshTokenFamily,

@@ -342,6 +342,38 @@ Unknown, expired, revoked and replayed tokens all return one identical 401.
 Telling a caller their token was *recognised but spent* confirms they hold a
 real one.
 
+### Password reset (US-024)
+
+```jsonc
+POST /auth/forgot-password { "slug": "acme", "email": "ali@example.com" }  // 202, always
+POST /auth/reset-password  { "token": "…", "password": "…" }              // 200
+```
+
+**The request endpoint answers identically whether or not the account exists** —
+same status, same body, for an unknown address, an unknown slug, and a user who
+was invited but never accepted. This is the endpoint where an account list
+usually leaks, so the status code is fixed as well as the body. What actually
+happened goes to `auth_event`, where only an operator sees it.
+
+> It is deliberately *not* audited to `audit_log`. Writing a row only when the
+> account exists would make the audit log the enumeration oracle the response
+> refuses to be.
+
+Redeeming a link re-hashes the password with Argon2id, burns the token, burns
+**every other outstanding reset link for that user**, and revokes **every
+refresh token they hold** — a reset is what someone does when they believe the
+account is compromised, so leaving a session alive would make it theatre. All of
+it lands in one transaction, so a password can never change without its sessions
+going with it.
+
+Redeeming returns **no session**. The revocation that just happened would
+otherwise have to exempt whoever triggered it; signing in again is also a check
+that they know the password they just set.
+
+Reset links live **one hour**, against an invitation's week: the link is a full
+account takeover for as long as it lives, and the person asking for it is
+sitting at their inbox now. Only SHA-256 digests are stored.
+
 > **Production refuses to start without `AUTH_JWT_SECRET`.** Outside production
 > it falls back to a visibly fake key named
 > `insecure-development-only-signing-key-do-not-use-in-production`, and logs a

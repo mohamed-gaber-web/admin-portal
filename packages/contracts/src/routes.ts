@@ -18,6 +18,10 @@ export const API_ROUTES = {
    * the access token it replaces has expired, which is the whole reason to call.
    */
   refresh: "/auth/refresh",
+  /** Asks for a reset link. Answers identically whether or not the account exists. */
+  requestPasswordReset: "/auth/forgot-password",
+  /** Redeems a reset link and sets a new password. */
+  completePasswordReset: "/auth/reset-password",
   /**
    * The caller's own companies. There is no tenant in the path: the tenant comes
    * from the access token's claims, so there is nothing here to iterate.

@@ -64,3 +64,55 @@ export const refreshSchema = z.object({
 });
 
 export type RefreshInput = z.infer<typeof refreshSchema>;
+
+/**
+ * Payload accepted when asking for a reset link.
+ *
+ * The slug is required for the same reason sign-in needs it: an address is not
+ * an identity here, it is an identity *within a tenant*.
+ */
+export const requestPasswordResetSchema = z.object({
+  slug: z.string().min(1),
+  email: z.string().min(1)
+});
+
+export type RequestPasswordResetInput = z.infer<typeof requestPasswordResetSchema>;
+
+/**
+ * What a reset request returns — always this, whatever happened.
+ *
+ * There is deliberately no field that could differ between "we sent a link" and
+ * "there is no such account". A boolean here, however well-intentioned, is an
+ * account-enumeration oracle.
+ */
+export const passwordResetRequestedSchema = z
+  .object({
+    status: z.literal("accepted")
+  })
+  .strict();
+
+export type PasswordResetRequested = z.infer<typeof passwordResetRequestedSchema>;
+
+/** Payload accepted when redeeming a reset link. */
+export const completePasswordResetSchema = z.object({
+  token: z.string().min(1),
+  password: z.string().min(12)
+});
+
+export type CompletePasswordResetInput = z.infer<typeof completePasswordResetSchema>;
+
+/**
+ * What redeeming a reset returns.
+ *
+ * No session: every refresh token was just revoked, and handing back a fresh
+ * one would undo the revocation for whoever redeemed the link. They sign in
+ * again with the new password, which is also a check that they know it.
+ */
+export const passwordResetCompletedSchema = z
+  .object({
+    status: z.literal("reset"),
+    email: z.string()
+  })
+  .strict();
+
+export type PasswordResetCompleted = z.infer<typeof passwordResetCompletedSchema>;

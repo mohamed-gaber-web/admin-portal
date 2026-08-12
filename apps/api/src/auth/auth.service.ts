@@ -7,10 +7,13 @@ import {
 import {
   acceptInvitation,
   authenticate,
+  completePasswordReset,
   INVALID_CREDENTIALS_MESSAGE,
   INVALID_SESSION_MESSAGE,
   InvalidInvitationError,
+  InvalidPasswordResetError,
   issueRefreshToken,
+  requestPasswordReset,
   rotateRefreshToken,
   withoutTenantScope,
   type AuthenticatedUser,
@@ -20,9 +23,14 @@ import type {
   AcceptInvitationInput,
   AcceptedInvitation,
   Authenticated,
+  CompletePasswordResetInput,
+  PasswordResetCompleted,
+  PasswordResetRequested,
   RefreshInput,
+  RequestPasswordResetInput,
   SignInInput
 } from "@growpath/contracts";
+import { apiLogger } from "../observability/logger";
 import type { Pool } from "pg";
 import { DATABASE_POOL } from "../database/database.module";
 import { issueAccessToken } from "./tokens";
@@ -134,6 +142,75 @@ export class AuthService {
     }
 
     return this.authenticated(result.user, result.refresh);
+  }
+
+  /**
+   * Asks for a reset link (US-024).
+   *
+   * Always answers the same thing. Whether an account exists is decided inside
+   * `requestPasswordReset`, and the difference goes no further than the log —
+   * a response that varies is an account-enumeration oracle, and this is the
+   * endpoint where that usually happens.
+   */
+  async requestPasswordReset(
+    input: RequestPasswordResetInput,
+    ip: string | null,
+    userAgent: string | null
+  ): Promise<PasswordResetRequested> {
+    const issued = await withoutTenantScope(
+      this.pool,
+      {
+        reason:
+          "A reset request arrives with no session; the slug and address are unverified claims until they are looked up (US-024)."
+      },
+      (client) => requestPasswordReset(client, { ...input, ip, userAgent })
+    );
+
+    if (issued) {
+      // Standing in for the email that US-0xx will send. The token itself is
+      // never logged — it is a credential, and the logger would redact the
+      // field anyway, but not putting it there is the actual defence.
+      apiLogger.info("password_reset.link_issued", {
+        tenantId: issued.tenantId,
+        userId: issued.userId,
+        expiresAt: issued.expiresAt.toISOString()
+      });
+    }
+
+    return { status: "accepted" };
+  }
+
+  /**
+   * Redeems a reset link and sets a new password.
+   *
+   * Returns no session on purpose: the reset just revoked every refresh token
+   * the user had, and handing back a fresh one would exempt whoever redeemed
+   * the link from the revocation they triggered.
+   */
+  async completePasswordReset(
+    input: CompletePasswordResetInput,
+    ip: string | null,
+    userAgent: string | null
+  ): Promise<PasswordResetCompleted> {
+    const result = await withoutTenantScope(
+      this.pool,
+      {
+        reason:
+          "Redeeming a reset link happens before any session exists; the token resolves the tenant (US-024)."
+      },
+      (client) => completePasswordReset(client, { ...input, ip, userAgent })
+    );
+
+    // Thrown after the commit, so the auth_event recording the refusal survives
+    // it — rejecting from inside the transaction would discard exactly the
+    // record AC3 asks for.
+    if (!result.ok) {
+      // 400 with one fixed message: unknown, expired and already-used must be
+      // indistinguishable to whoever is holding a guessed token.
+      throw new BadRequestException({ message: new InvalidPasswordResetError().message });
+    }
+
+    return { status: "reset", email: result.reset.email };
   }
 
   /** The response shape shared by sign-in and refresh. */

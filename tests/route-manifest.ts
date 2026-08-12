@@ -104,6 +104,24 @@ export const DECLARED_ROUTES: DeclaredRoute[] = [
       "Rotation and replay are recorded in auth_event (token.refreshed, token.replayed, token.rejected), not audit_log. A replay of an unknown token has no tenant at all, and audit_log.tenant_id is NOT NULL."
   },
   {
+    method: "POST",
+    path: "/auth/forgot-password",
+    visibility: "public",
+    note: "Asks for a reset link (US-024). Necessarily unauthenticated. Answers an identical 202 whether or not the account exists — this is the endpoint where account enumeration usually leaks, so the status code is fixed as well as the body.",
+    audits: [],
+    noAuditReason:
+      "Recorded in auth_event as password_reset.requested. A request naming an unknown slug has no tenant, and audit_log.tenant_id is NOT NULL. Writing an audit_log row only when the account exists would also make the audit log itself the enumeration oracle the response avoids being."
+  },
+  {
+    method: "POST",
+    path: "/auth/reset-password",
+    visibility: "public",
+    note: "Redeems a reset link (US-024). The token is the only credential the caller has. Redeeming revokes every refresh token the user holds, because a reset is what someone does when they believe the account is compromised.",
+    // The tenant is known by the time this succeeds, so the credential change
+    // belongs in the audit log as well as auth_event.
+    audits: ["password.reset"]
+  },
+  {
     method: "GET",
     path: "/companies",
     visibility: "tenant-scoped",
