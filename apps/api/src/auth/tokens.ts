@@ -23,7 +23,19 @@ export const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 
 const ISSUER = "growpath-admin-api";
 const AUDIENCE = "growpath-admin-portal";
+/**
+ * A distinct audience for the half-finished sign-in of a user with MFA (US-025).
+ *
+ * The separation is the point: a challenge token proves only that a password
+ * was correct, and `verifyAccessToken` rejects it because the audience does not
+ * match. Reusing one audience for both would make the password-only stage
+ * sufficient to reach tenant data — exactly what the second factor is for.
+ */
+const MFA_AUDIENCE = "growpath-admin-portal-mfa";
 const ALGORITHM = "HS256";
+
+/** Long enough to fetch a phone, short enough that a leaked one is stale fast. */
+export const MFA_CHALLENGE_TTL_SECONDS = 5 * 60;
 
 /**
  * A visibly fake key used only outside production.
@@ -130,6 +142,56 @@ export async function verifyAccessToken(token: string): Promise<AccessTokenClaim
       algorithms: [ALGORITHM]
     });
     return toClaims(payload);
+  } catch {
+    return null;
+  }
+}
+
+export interface MfaChallengeClaims {
+  userId: string;
+  tenantId: string;
+}
+
+export interface IssuedMfaChallenge {
+  token: string;
+  expiresIn: number;
+}
+
+/**
+ * Issues the token that stands between a correct password and a session.
+ *
+ * It carries no permissions and names no audience the API will accept for data
+ * access; the only thing it can be exchanged for is a second-factor check.
+ */
+export async function issueMfaChallenge(
+  claims: MfaChallengeClaims
+): Promise<IssuedMfaChallenge> {
+  const token = await new SignJWT({ tenantId: claims.tenantId })
+    .setProtectedHeader({ alg: ALGORITHM })
+    .setSubject(claims.userId)
+    .setIssuer(ISSUER)
+    .setAudience(MFA_AUDIENCE)
+    .setIssuedAt()
+    .setExpirationTime(`${MFA_CHALLENGE_TTL_SECONDS}s`)
+    .sign(signingKey());
+
+  return { token, expiresIn: MFA_CHALLENGE_TTL_SECONDS };
+}
+
+/** Verifies a challenge token, or null if it cannot be trusted. */
+export async function verifyMfaChallenge(token: string): Promise<MfaChallengeClaims | null> {
+  try {
+    const { payload } = await jwtVerify(token, signingKey(), {
+      issuer: ISSUER,
+      // An access token presented here fails on audience, and vice versa.
+      audience: MFA_AUDIENCE,
+      algorithms: [ALGORITHM]
+    });
+    const { sub, tenantId } = payload as JWTPayload & { tenantId?: unknown };
+    if (typeof sub !== "string" || typeof tenantId !== "string") {
+      return null;
+    }
+    return { userId: sub, tenantId };
   } catch {
     return null;
   }

@@ -116,3 +116,77 @@ export const passwordResetCompletedSchema = z
   .strict();
 
 export type PasswordResetCompleted = z.infer<typeof passwordResetCompletedSchema>;
+
+/**
+ * What sign-in returns when the account has MFA enabled (US-025).
+ *
+ * Deliberately carries no access token and no refresh token — a correct
+ * password alone must not reach tenant data, which is the entire point of the
+ * second factor. The challenge token can be exchanged for nothing except an
+ * MFA verification.
+ */
+export const mfaRequiredSchema = z
+  .object({
+    status: z.literal("mfa_required"),
+    challengeToken: z.string().min(1),
+    expiresIn: z.number().int().positive()
+  })
+  .strict();
+
+export type MfaRequired = z.infer<typeof mfaRequiredSchema>;
+
+/**
+ * Everything sign-in can answer.
+ *
+ * A discriminated union rather than optional fields: a client cannot read
+ * `accessToken` off an `mfa_required` response, because on that branch the type
+ * does not have one.
+ */
+export const signInResponseSchema = z.discriminatedUnion("status", [
+  authenticatedSchema,
+  mfaRequiredSchema
+]);
+
+export type SignInResponse = z.infer<typeof signInResponseSchema>;
+
+/** Payload accepted when answering an MFA challenge. */
+export const verifyMfaSchema = z.object({
+  challengeToken: z.string().min(1),
+  /** A six-digit TOTP code, or a recovery code. */
+  code: z.string().min(1)
+});
+
+export type VerifyMfaInput = z.infer<typeof verifyMfaSchema>;
+
+/** What starting an enrolment returns. Shown once and never again. */
+export const mfaEnrolmentSchema = z
+  .object({
+    status: z.literal("enrolment_started"),
+    secret: z.string().min(1),
+    uri: z.string().min(1)
+  })
+  .strict();
+
+export type MfaEnrolmentStarted = z.infer<typeof mfaEnrolmentSchema>;
+
+/** Payload accepted when confirming an enrolment. */
+export const confirmMfaSchema = z.object({
+  code: z.string().min(1)
+});
+
+export type ConfirmMfaInput = z.infer<typeof confirmMfaSchema>;
+
+/**
+ * What confirming an enrolment returns.
+ *
+ * The recovery codes appear here and nowhere else, ever — only their digests
+ * are stored, so there is no endpoint that could show them again.
+ */
+export const mfaEnabledSchema = z
+  .object({
+    status: z.literal("mfa_enabled"),
+    recoveryCodes: z.array(z.string().min(1)).min(1)
+  })
+  .strict();
+
+export type MfaEnabled = z.infer<typeof mfaEnabledSchema>;

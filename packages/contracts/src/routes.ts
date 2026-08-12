@@ -22,6 +22,12 @@ export const API_ROUTES = {
   requestPasswordReset: "/auth/forgot-password",
   /** Redeems a reset link and sets a new password. */
   completePasswordReset: "/auth/reset-password",
+  /** Answers an MFA challenge and completes a sign-in (US-025). */
+  verifyMfa: "/auth/mfa/verify",
+  /** Starts TOTP enrolment for the signed-in user. */
+  enrolMfa: "/auth/mfa/enrol",
+  /** Confirms enrolment with a code from the authenticator app. */
+  confirmMfa: "/auth/mfa/confirm",
   /**
    * The caller's own companies. There is no tenant in the path: the tenant comes
    * from the access token's claims, so there is nothing here to iterate.

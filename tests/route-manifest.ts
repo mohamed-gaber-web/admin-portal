@@ -122,6 +122,31 @@ export const DECLARED_ROUTES: DeclaredRoute[] = [
     audits: ["password.reset"]
   },
   {
+    method: "POST",
+    path: "/auth/mfa/verify",
+    visibility: "public",
+    note: "Answers an MFA challenge and completes a sign-in (US-025). Unauthenticated: the caller holds a challenge token, which proves only that a password was correct and can be exchanged for nothing else. A wrong code, a replayed code and a spent recovery code all answer identically.",
+    audits: [],
+    noAuditReason:
+      "Recorded in auth_event as mfa.succeeded / mfa.failed, alongside the sign-in attempt it belongs to. Consistent with login: authentication outcomes live in auth_event, not audit_log."
+  },
+  {
+    method: "POST",
+    path: "/auth/mfa/enrol",
+    visibility: "tenant-scoped",
+    note: "Starts TOTP enrolment for the signed-in user (US-025). The user comes from the token's claims — there is no id parameter, so nobody can start an enrolment for anyone else. Nothing is enabled until it is confirmed.",
+    audits: [],
+    noAuditReason:
+      "Mints a secret but enables nothing; the account is unchanged until confirmation, which is audited as mfa.enabled. Auditing the start would record an intent that may never complete."
+  },
+  {
+    method: "POST",
+    path: "/auth/mfa/confirm",
+    visibility: "tenant-scoped",
+    note: "Confirms enrolment against a code from the authenticator app and issues recovery codes (US-025). The code proves the app holds the same secret the server does.",
+    audits: ["mfa.enabled"]
+  },
+  {
     method: "GET",
     path: "/companies",
     visibility: "tenant-scoped",

@@ -342,6 +342,50 @@ Unknown, expired, revoked and replayed tokens all return one identical 401.
 Telling a caller their token was *recognised but spent* confirms they hold a
 real one.
 
+### Multi-factor authentication (US-025)
+
+```jsonc
+POST /auth/mfa/enrol                                  // authenticated -> { secret, uri }
+POST /auth/mfa/confirm { "code": "123456" }           // authenticated -> { recoveryCodes }
+POST /auth/login       { … }                          // -> { status: "mfa_required", challengeToken }
+POST /auth/mfa/verify  { "challengeToken": "…", "code": "…" }  // -> a full session
+```
+
+TOTP is implemented directly on `node:crypto` (RFC 6238 — HMAC-SHA1, 30-second
+steps, six digits, ±1 step of drift). It is thirty lines, and a second factor is
+a poor place to inherit someone else's supply chain.
+
+**The shared secret is encrypted, not hashed.** Unlike a password or a refresh
+token, the server must reproduce it to check a code, so a one-way digest is not
+available — which makes `AUTH_MFA_KEY` the real security boundary. AES-256-GCM,
+so a stored secret is authenticated as well as confidential: someone with write
+access to the column cannot swap in a secret of their own. Production refuses to
+start without the key. Recovery codes are the opposite case — nothing needs to
+reproduce them, so only SHA-256 digests are kept, and each is single use.
+
+**Sign-in returns a challenge, not a session.** On the `mfa_required` branch no
+refresh token is created at all — not issued-and-withheld, not
+issued-and-revoked. The challenge token carries a *different audience* from an
+access token, so `verifyAccessToken` rejects it and it opens nothing but the
+second-factor check. Five-minute life.
+
+**A code cannot be replayed inside its own window.** A TOTP code is valid for a
+period, so checking it alone would let it be reused for the rest of that period.
+Each spent *time step* is recorded in `mfa_code_use`, unique on `(user_id,
+step)` — the step, not the code, so the table holds nothing replayable if it
+leaks, and the unique constraint rather than an application check is what makes
+two simultaneous presentations resolve to one winner.
+
+> **`ON CONFLICT`, not a caught exception.** A raised unique violation aborts the
+> surrounding transaction, and every statement after it — including the
+> `auth_event` recording the replay — fails too. That turns a correctly detected
+> replay into a 500. This was a real bug, caught by the AC3 test.
+
+Enrolment is two steps on purpose: minting a secret enables nothing, because
+enabling on request would lock a user out the moment they asked to enrol, before
+they had ever proved their app was configured. Re-enrolling an account that
+already has MFA is a 409 rather than a silent replacement of the second factor.
+
 ### Password reset (US-024)
 
 ```jsonc

@@ -1,20 +1,29 @@
-import { Body, Controller, Headers, HttpCode, Ip, Post } from "@nestjs/common";
+import { Body, Controller, Headers, HttpCode, Ip, Post, Req, UseGuards } from "@nestjs/common";
+import type { Request } from "express";
+import { AccessTokenGuard } from "./access-token.guard";
 import {
   API_ROUTES,
   acceptInvitationSchema,
   completePasswordResetSchema,
+  confirmMfaSchema,
   refreshSchema,
   requestPasswordResetSchema,
   signInSchema,
+  verifyMfaSchema,
   type AcceptInvitationInput,
   type AcceptedInvitation,
   type Authenticated,
   type CompletePasswordResetInput,
+  type ConfirmMfaInput,
+  type MfaEnabled,
+  type MfaEnrolmentStarted,
   type PasswordResetCompleted,
   type PasswordResetRequested,
   type RefreshInput,
   type RequestPasswordResetInput,
-  type SignInInput
+  type SignInInput,
+  type SignInResponse,
+  type VerifyMfaInput
 } from "@growpath/contracts";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { AuthService } from "./auth.service";
@@ -51,7 +60,7 @@ export class AuthController {
     @Body(new ZodValidationPipe(signInSchema)) dto: SignInInput,
     @Ip() ip: string,
     @Headers("user-agent") userAgent: string
-  ): Promise<Authenticated> {
+  ): Promise<SignInResponse> {
     return this.auth.signIn(dto, ip || null, userAgent || null);
   }
 
@@ -98,5 +107,46 @@ export class AuthController {
     @Headers("user-agent") userAgent: string
   ): Promise<PasswordResetCompleted> {
     return this.auth.completePasswordReset(dto, ip || null, userAgent || null);
+  }
+
+  /**
+   * Answers an MFA challenge and completes a sign-in (US-025).
+   *
+   * Unauthenticated: the caller holds a challenge token, not an access token —
+   * having only a correct password is precisely the state this resolves.
+   */
+  @Post(API_ROUTES.verifyMfa)
+  @HttpCode(200)
+  verifyMfa(
+    @Body(new ZodValidationPipe(verifyMfaSchema)) dto: VerifyMfaInput,
+    @Ip() ip: string,
+    @Headers("user-agent") userAgent: string
+  ): Promise<Authenticated> {
+    return this.auth.verifyMfa(dto, ip || null, userAgent || null);
+  }
+
+  /**
+   * Starts TOTP enrolment for the signed-in user.
+   *
+   * The user comes from the verified token, never from the body: an enrolment
+   * endpoint that took a user id would let anyone re-enrol anyone.
+   */
+  @Post(API_ROUTES.enrolMfa)
+  @HttpCode(200)
+  @UseGuards(AccessTokenGuard)
+  enrolMfa(@Req() request: Request): Promise<MfaEnrolmentStarted> {
+    return this.auth.enrolMfa(request.auth!.userId);
+  }
+
+  /** Confirms enrolment with a code from the authenticator app. */
+  @Post(API_ROUTES.confirmMfa)
+  @HttpCode(200)
+  @UseGuards(AccessTokenGuard)
+  confirmMfa(
+    @Req() request: Request,
+    @Body(new ZodValidationPipe(confirmMfaSchema)) dto: ConfirmMfaInput,
+    @Ip() ip: string
+  ): Promise<MfaEnabled> {
+    return this.auth.confirmMfa(request.auth!.userId, dto, ip || null);
   }
 }

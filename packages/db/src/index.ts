@@ -23,6 +23,39 @@ export {
   type UnscopedAccessOptions
 } from "./scoping";
 export {
+  beginMfaEnrolment,
+  confirmMfaEnrolment,
+  verifyMfa,
+  mfaIsEnabled,
+  countUnusedRecoveryCodes,
+  generateRecoveryCode,
+  hashRecoveryCode,
+  normaliseRecoveryCode,
+  InvalidMfaCodeError,
+  MfaAlreadyEnabledError,
+  RECOVERY_CODE_COUNT,
+  type MfaEnrolment,
+  type ConfirmedMfaEnrolment,
+  type MfaVerification,
+  type MfaFailure
+} from "./mfa";
+export {
+  generateTotpSecret,
+  verifyTotpCode,
+  totpCodeNow,
+  totpCodeForStep,
+  totpStep,
+  totpUri,
+  encryptSecret,
+  decryptSecret,
+  resetMfaEncryptionKey,
+  base32Encode,
+  base32Decode,
+  TOTP_PERIOD_SECONDS,
+  TOTP_DIGITS,
+  TOTP_WINDOW_STEPS
+} from "./totp";
+export {
   requestPasswordReset,
   completePasswordReset,
   generateResetToken,
@@ -48,6 +81,7 @@ export {
 } from "./refresh-tokens";
 export {
   authenticate,
+  loadAuthenticatedUser,
   loadPermissions,
   recordAuthEvent,
   INVALID_CREDENTIALS_MESSAGE,

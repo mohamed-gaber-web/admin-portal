@@ -91,6 +91,47 @@ interface CandidateRow {
   password_hash: string | null;
 }
 
+/**
+ * Rebuilds the identity for a user whose credential was already verified.
+ *
+ * Used by the MFA gate (US-025), where the password check happened in an
+ * earlier request and the session is only issued once the second factor lands.
+ * Re-reads the tenant and permissions rather than carrying them in the
+ * challenge token: a disabled account between the two steps must not still
+ * receive a session.
+ */
+export async function loadAuthenticatedUser(
+  db: Queryable,
+  userId: string
+): Promise<AuthenticatedUser | null> {
+  const res = await db.query<{
+    user_id: string;
+    email: string;
+    tenant_id: string;
+    slug: string;
+    status: string;
+  }>(
+    `SELECT u.id AS user_id, u.email, t.id AS tenant_id, t.slug, u.status
+     FROM "user" u
+     JOIN tenant t ON t.id = u.tenant_id
+     WHERE u.id = $1 AND t.deleted_at IS NULL`,
+    [userId]
+  );
+
+  const row = res.rows[0];
+  if (!row || row.status !== "active") {
+    return null;
+  }
+
+  return {
+    userId: row.user_id,
+    email: row.email,
+    tenantId: row.tenant_id,
+    tenantSlug: row.slug,
+    permissions: await loadPermissions(db, row.tenant_id, row.user_id)
+  };
+}
+
 export interface RecordAuthEventInput {
   tenantId?: string | null;
   userId?: string | null;

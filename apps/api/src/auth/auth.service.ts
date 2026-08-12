@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   UnauthorizedException
@@ -7,15 +8,23 @@ import {
 import {
   acceptInvitation,
   authenticate,
+  beginMfaEnrolment,
   completePasswordReset,
+  confirmMfaEnrolment,
   INVALID_CREDENTIALS_MESSAGE,
   INVALID_SESSION_MESSAGE,
   InvalidInvitationError,
+  InvalidMfaCodeError,
   InvalidPasswordResetError,
   issueRefreshToken,
+  loadAuthenticatedUser,
+  MfaAlreadyEnabledError,
+  mfaIsEnabled,
   requestPasswordReset,
   rotateRefreshToken,
+  verifyMfa,
   withoutTenantScope,
+  withRequestTenantScope,
   type AuthenticatedUser,
   type IssuedRefreshToken
 } from "@growpath/db";
@@ -24,16 +33,21 @@ import type {
   AcceptedInvitation,
   Authenticated,
   CompletePasswordResetInput,
+  ConfirmMfaInput,
+  MfaEnabled,
+  MfaEnrolmentStarted,
   PasswordResetCompleted,
   PasswordResetRequested,
   RefreshInput,
   RequestPasswordResetInput,
-  SignInInput
+  SignInInput,
+  SignInResponse,
+  VerifyMfaInput
 } from "@growpath/contracts";
 import { apiLogger } from "../observability/logger";
 import type { Pool } from "pg";
 import { DATABASE_POOL } from "../database/database.module";
-import { issueAccessToken } from "./tokens";
+import { issueAccessToken, issueMfaChallenge, verifyMfaChallenge } from "./tokens";
 
 @Injectable()
 export class AuthService {
@@ -72,7 +86,7 @@ export class AuthService {
     input: SignInInput,
     ip: string | null,
     userAgent: string | null
-  ): Promise<Authenticated> {
+  ): Promise<SignInResponse> {
     // Unscoped by necessity: the caller has no session yet, and which tenant
     // they belong to is the question this request answers. The slug they
     // supplied is a claim, not a context — it is verified here, never trusted.
@@ -85,8 +99,16 @@ export class AuthService {
       async (client) => {
         const result = await authenticate(client, { ...input, ip, userAgent });
         if (!result.ok) {
-          return { result };
+          return { result, mfaRequired: false };
         }
+
+        // US-025 AC2. No refresh token is issued on this branch at all — not
+        // issued-and-withheld, not issued-and-revoked. A correct password alone
+        // must leave nothing behind that could reach tenant data.
+        if (await mfaIsEnabled(client, result.user.userId)) {
+          return { result, mfaRequired: true };
+        }
+
         // A sign-in starts a new family — no familyId, so the insert mints one.
         const refresh = await issueRefreshToken(client, {
           tenantId: result.user.tenantId,
@@ -94,7 +116,7 @@ export class AuthService {
           ip,
           userAgent
         });
-        return { result, refresh };
+        return { result, mfaRequired: false, refresh };
       }
     );
 
@@ -107,7 +129,123 @@ export class AuthService {
       throw new UnauthorizedException({ message: INVALID_CREDENTIALS_MESSAGE });
     }
 
+    if (outcome.mfaRequired) {
+      const challenge = await issueMfaChallenge({
+        userId: outcome.result.user.userId,
+        tenantId: outcome.result.user.tenantId
+      });
+      return {
+        status: "mfa_required",
+        challengeToken: challenge.token,
+        expiresIn: challenge.expiresIn
+      };
+    }
+
     return this.authenticated(outcome.result.user, outcome.refresh!);
+  }
+
+  /**
+   * Answers an MFA challenge and completes the sign-in (US-025).
+   *
+   * The challenge token proves a password was checked in an earlier request;
+   * the code proves the second factor. Only both together produce a session.
+   */
+  async verifyMfa(
+    input: VerifyMfaInput,
+    ip: string | null,
+    userAgent: string | null
+  ): Promise<Authenticated> {
+    const claims = await verifyMfaChallenge(input.challengeToken);
+    if (!claims) {
+      // Expired, forged, or an access token presented in its place.
+      throw new UnauthorizedException({ message: INVALID_CREDENTIALS_MESSAGE });
+    }
+
+    const outcome = await withoutTenantScope(
+      this.pool,
+      {
+        reason:
+          "Answering an MFA challenge happens before a session exists; the challenge token resolves the user (US-025)."
+      },
+      async (client) => {
+        const verification = await verifyMfa(client, {
+          userId: claims.userId,
+          code: input.code,
+          ip,
+          userAgent
+        });
+        if (!verification.ok) {
+          return { verification };
+        }
+
+        // Re-read rather than trusting the challenge: an account disabled
+        // between the password step and this one must not get a session.
+        const user = await loadAuthenticatedUser(client, claims.userId);
+        if (!user) {
+          return { verification: { ok: false as const, reason: "invalid" as const } };
+        }
+
+        const refresh = await issueRefreshToken(client, {
+          tenantId: user.tenantId,
+          userId: user.userId,
+          ip,
+          userAgent
+        });
+        return { verification, user, refresh };
+      }
+    );
+
+    // After the commit, so the auth_event recording the failure survives.
+    if (!outcome.verification.ok) {
+      // One message for a wrong code, a replayed code and a spent recovery
+      // code alike.
+      throw new UnauthorizedException({ message: new InvalidMfaCodeError().message });
+    }
+
+    return this.authenticated(outcome.user!, outcome.refresh!);
+  }
+
+  /**
+   * Starts TOTP enrolment for the signed-in user.
+   *
+   * Tenant-scoped through the request context (US-012): the user row this
+   * touches is resolved from the access token's claims, and there is no
+   * parameter naming whose enrolment it is.
+   */
+  async enrolMfa(userId: string): Promise<MfaEnrolmentStarted> {
+    try {
+      const enrolment = await withRequestTenantScope(this.pool, (client) =>
+        beginMfaEnrolment(client, { userId })
+      );
+      return { status: "enrolment_started", secret: enrolment.secret, uri: enrolment.uri };
+    } catch (err) {
+      if (err instanceof MfaAlreadyEnabledError) {
+        throw new ConflictException({ message: err.message });
+      }
+      throw err;
+    }
+  }
+
+  /** Confirms enrolment with a code from the app, and issues recovery codes. */
+  async confirmMfa(
+    userId: string,
+    input: ConfirmMfaInput,
+    ip: string | null
+  ): Promise<MfaEnabled> {
+    try {
+      const confirmed = await withRequestTenantScope(this.pool, (client) =>
+        confirmMfaEnrolment(client, { userId, code: input.code, ip })
+      );
+      return { status: "mfa_enabled", recoveryCodes: confirmed.recoveryCodes };
+    } catch (err) {
+      if (err instanceof MfaAlreadyEnabledError) {
+        throw new ConflictException({ message: err.message });
+      }
+      if (err instanceof InvalidMfaCodeError) {
+        throw new BadRequestException({ message: err.message });
+      }
+      throw err;
+    }
   }
 
   /**
