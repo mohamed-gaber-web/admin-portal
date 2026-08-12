@@ -8,13 +8,19 @@ import {
   acceptInvitation,
   authenticate,
   INVALID_CREDENTIALS_MESSAGE,
+  INVALID_SESSION_MESSAGE,
   InvalidInvitationError,
-  withoutTenantScope
+  issueRefreshToken,
+  rotateRefreshToken,
+  withoutTenantScope,
+  type AuthenticatedUser,
+  type IssuedRefreshToken
 } from "@growpath/db";
 import type {
   AcceptInvitationInput,
   AcceptedInvitation,
   Authenticated,
+  RefreshInput,
   SignInInput
 } from "@growpath/contracts";
 import type { Pool } from "pg";
@@ -62,41 +68,101 @@ export class AuthService {
     // Unscoped by necessity: the caller has no session yet, and which tenant
     // they belong to is the question this request answers. The slug they
     // supplied is a claim, not a context — it is verified here, never trusted.
-    const result = await withoutTenantScope(
+    const outcome = await withoutTenantScope(
       this.pool,
       {
         reason:
           "Sign-in precedes any tenant context; the supplied slug is an unverified claim until the credential checks out (US-021)."
       },
-      (client) => authenticate(client, { ...input, ip, userAgent })
+      async (client) => {
+        const result = await authenticate(client, { ...input, ip, userAgent });
+        if (!result.ok) {
+          return { result };
+        }
+        // A sign-in starts a new family — no familyId, so the insert mints one.
+        const refresh = await issueRefreshToken(client, {
+          tenantId: result.user.tenantId,
+          userId: result.user.userId,
+          ip,
+          userAgent
+        });
+        return { result, refresh };
+      }
     );
 
     // Thrown after the transaction commits, never inside it. Rejecting from
     // within would roll back the auth_event that records the failed attempt,
     // and a failed sign-in nobody can see is the opposite of the requirement.
-    if (!result.ok) {
+    if (!outcome.result.ok) {
       // 401 with one fixed message for every cause, so nothing here can leak
       // which of slug, email, status or password was wrong.
       throw new UnauthorizedException({ message: INVALID_CREDENTIALS_MESSAGE });
     }
 
-    // Issued only after the credential checks out, and carrying the tenant the
-    // database confirmed — not the slug the caller claimed (US-022).
+    return this.authenticated(outcome.result.user, outcome.refresh!);
+  }
+
+  /**
+   * Exchanges a refresh token for a new pair (US-023).
+   *
+   * Unauthenticated, necessarily: the access token this replaces has expired,
+   * which is the reason the caller is here. The refresh token is therefore the
+   * only credential, and rotating it on every use is what makes a stolen one
+   * detectable rather than silently reusable.
+   */
+  async refresh(
+    input: RefreshInput,
+    ip: string | null,
+    userAgent: string | null
+  ): Promise<Authenticated> {
+    const result = await withoutTenantScope(
+      this.pool,
+      {
+        reason:
+          "Exchanging a refresh token happens with no access token and so no tenant context; the token itself resolves the tenant (US-023)."
+      },
+      (client) => rotateRefreshToken(client, { token: input.refreshToken, ip, userAgent })
+    );
+
+    // Again after the commit: a replay revokes the family and writes the
+    // auth_event, and throwing from inside the transaction would discard both —
+    // losing precisely the record that a leaked token was detected.
+    if (!result.ok) {
+      // One message for unknown, expired, revoked and replayed alike. Telling a
+      // thief their token was recognised-but-spent confirms they hold a real one.
+      throw new UnauthorizedException({ message: INVALID_SESSION_MESSAGE });
+    }
+
+    return this.authenticated(result.user, result.refresh);
+  }
+
+  /** The response shape shared by sign-in and refresh. */
+  private async authenticated(
+    user: AuthenticatedUser,
+    refresh: IssuedRefreshToken
+  ): Promise<Authenticated> {
+    // Carrying the tenant the database confirmed — not one the caller claimed
+    // and not one read from a header (US-022).
     const { token, expiresIn } = await issueAccessToken({
-      userId: result.user.userId,
-      tenantId: result.user.tenantId,
-      tenantSlug: result.user.tenantSlug,
-      email: result.user.email,
-      permissions: result.user.permissions
+      userId: user.userId,
+      tenantId: user.tenantId,
+      tenantSlug: user.tenantSlug,
+      email: user.email,
+      permissions: user.permissions
     });
 
     return {
       status: "authenticated",
-      user: { id: result.user.userId, email: result.user.email },
-      tenant: { id: result.user.tenantId, slug: result.user.tenantSlug },
+      user: { id: user.userId, email: user.email },
+      tenant: { id: user.tenantId, slug: user.tenantSlug },
       accessToken: token,
       tokenType: "Bearer",
-      expiresIn
+      expiresIn,
+      refreshToken: refresh.token,
+      refreshExpiresIn: Math.max(
+        0,
+        Math.floor((refresh.expiresAt.getTime() - Date.now()) / 1000)
+      )
     };
   }
 }

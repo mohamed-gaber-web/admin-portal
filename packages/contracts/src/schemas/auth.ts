@@ -37,8 +37,30 @@ export const authenticatedSchema = z
     tenant: z.object({ id: z.string().uuid(), slug: z.string() }).strict(),
     accessToken: z.string().min(1),
     tokenType: z.literal("Bearer"),
-    expiresIn: z.number().int().positive()
+    expiresIn: z.number().int().positive(),
+    /**
+     * Exchanged at `/auth/refresh` for a new pair (US-023). Single use: the
+     * token returned here stops working the moment it is exchanged, and
+     * presenting it twice signs the whole session out.
+     */
+    refreshToken: z.string().min(1),
+    refreshExpiresIn: z.number().int().positive()
   })
   .strict();
 
 export type Authenticated = z.infer<typeof authenticatedSchema>;
+
+/**
+ * Payload accepted when exchanging a refresh token.
+ *
+ * The token travels in the body rather than a cookie, matching how the access
+ * token is returned — the Ionic app is a first-class client here and has no
+ * cookie jar. A browser client should keep it out of `localStorage`; moving it
+ * to an httpOnly cookie is a portal-side decision that does not change this
+ * contract.
+ */
+export const refreshSchema = z.object({
+  refreshToken: z.string().min(1)
+});
+
+export type RefreshInput = z.infer<typeof refreshSchema>;

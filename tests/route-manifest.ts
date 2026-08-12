@@ -95,6 +95,15 @@ export const DECLARED_ROUTES: DeclaredRoute[] = [
       "Sign-in attempts are recorded in auth_event, not audit_log. A failed attempt against an unknown slug has no tenant at all, and audit_log.tenant_id is NOT NULL — which is the reason auth_event exists."
   },
   {
+    method: "POST",
+    path: "/auth/refresh",
+    visibility: "public",
+    note: "Exchanges a refresh token for a new pair (US-023). Necessarily unauthenticated — the access token it replaces has expired. Every exchange rotates; presenting a spent token revokes the whole family. Unknown, expired, revoked and replayed all answer with one identical 401.",
+    audits: [],
+    noAuditReason:
+      "Rotation and replay are recorded in auth_event (token.refreshed, token.replayed, token.rejected), not audit_log. A replay of an unknown token has no tenant at all, and audit_log.tenant_id is NOT NULL."
+  },
+  {
     method: "GET",
     path: "/companies",
     visibility: "tenant-scoped",

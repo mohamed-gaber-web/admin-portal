@@ -23,7 +23,22 @@ export {
   type UnscopedAccessOptions
 } from "./scoping";
 export {
+  issueRefreshToken,
+  rotateRefreshToken,
+  revokeRefreshTokenFamily,
+  generateRefreshToken,
+  hashRefreshToken,
+  INVALID_SESSION_MESSAGE,
+  REFRESH_TOKEN_TTL_DAYS,
+  type IssuedRefreshToken,
+  type IssueRefreshTokenInput,
+  type RefreshResult,
+  type RefreshFailure,
+  type RotateRefreshTokenInput
+} from "./refresh-tokens";
+export {
   authenticate,
+  loadPermissions,
   recordAuthEvent,
   INVALID_CREDENTIALS_MESSAGE,
   type AuthenticationResult,

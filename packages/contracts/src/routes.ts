@@ -14,6 +14,11 @@ export const API_ROUTES = {
   /** Sign-in. Takes the tenant slug, because email alone is not an identity. */
   login: "/auth/login",
   /**
+   * Exchanges a refresh token for a new pair. Unauthenticated by necessity —
+   * the access token it replaces has expired, which is the whole reason to call.
+   */
+  refresh: "/auth/refresh",
+  /**
    * The caller's own companies. There is no tenant in the path: the tenant comes
    * from the access token's claims, so there is nothing here to iterate.
    */

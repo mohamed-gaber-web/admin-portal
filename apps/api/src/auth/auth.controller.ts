@@ -2,10 +2,12 @@ import { Body, Controller, Headers, HttpCode, Ip, Post } from "@nestjs/common";
 import {
   API_ROUTES,
   acceptInvitationSchema,
+  refreshSchema,
   signInSchema,
   type AcceptInvitationInput,
   type AcceptedInvitation,
   type Authenticated,
+  type RefreshInput,
   type SignInInput
 } from "@growpath/contracts";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
@@ -45,5 +47,22 @@ export class AuthController {
     @Headers("user-agent") userAgent: string
   ): Promise<Authenticated> {
     return this.auth.signIn(dto, ip || null, userAgent || null);
+  }
+
+  /**
+   * Exchanges a refresh token for a new pair.
+   *
+   * 200, not 201: from the caller's side this continues a session rather than
+   * creating one. The IP and user agent are recorded on the new token, so a
+   * family that suddenly rotates from another continent is visible afterwards.
+   */
+  @Post(API_ROUTES.refresh)
+  @HttpCode(200)
+  refresh(
+    @Body(new ZodValidationPipe(refreshSchema)) dto: RefreshInput,
+    @Ip() ip: string,
+    @Headers("user-agent") userAgent: string
+  ): Promise<Authenticated> {
+    return this.auth.refresh(dto, ip || null, userAgent || null);
   }
 }

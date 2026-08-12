@@ -304,7 +304,43 @@ code expects.
 
 **Fifteen minutes**, deliberately. Permissions are stamped in at sign-in rather
 than joined per request, so the expiry is what bounds how long a revoked
-permission keeps working. Long sessions need refresh tokens (US-023).
+permission keeps working. Sessions outlive it via refresh tokens, below.
+
+### Refresh tokens (US-023)
+
+```jsonc
+POST /auth/refresh { "refreshToken": "…" }   // 200 -> a new access + refresh pair
+```
+
+Sign-in starts a **family**; every exchange mints a new token in that family and
+marks the presented one used. A refresh token is therefore **single use** — the
+one you just spent never works again.
+
+**Presenting a spent token revokes the entire family**, not just that token.
+Revoking only the replayed one would leave the thief's newer token working,
+which is the whole failure this prevents. Whether it was the thief replaying a
+copy or the legitimate user replaying one the thief already spent is unknowable
+from here, so both are signed out and an `auth_event` records `token.replayed`
+for review.
+
+> **A double-submit signs the session out.** Two tabs racing the same token, or
+> a client retrying a request whose response it lost, is indistinguishable from
+> a replay — and the design deliberately resolves that ambiguity in favour of
+> assuming theft. Clients must serialise their refresh calls. A grace window
+> would soften this, at the cost of a window in which a stolen token works.
+
+Only SHA-256 digests are stored, for the same reason as invitation tokens.
+Nothing in `refresh_token` can be presented as a token, so read access to the
+table does not yield a session.
+
+Exchanges are serialised by a `FOR UPDATE` row lock. Without it two concurrent
+exchanges would both read an unused token and both rotate, leaving two live
+tokens in one family — after which the user's next call is indistinguishable
+from a thief's.
+
+Unknown, expired, revoked and replayed tokens all return one identical 401.
+Telling a caller their token was *recognised but spent* confirms they hold a
+real one.
 
 > **Production refuses to start without `AUTH_JWT_SECRET`.** Outside production
 > it falls back to a visibly fake key named

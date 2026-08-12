@@ -19,6 +19,8 @@ export interface TenantFixture {
   email: string;
   /** A real token, obtained by signing in over HTTP the way a client would. */
   accessToken: string;
+  /** The refresh token from that same sign-in, unspent. */
+  refreshToken: string;
   companies: CompanyFixture[];
 }
 
@@ -88,7 +90,7 @@ export async function seedTenant(
   if (res.status !== 200) {
     throw new Error(`fixture sign-in failed for ${slug}: ${res.status} ${await res.text()}`);
   }
-  const body = (await res.json()) as { accessToken: string };
+  const body = (await res.json()) as { accessToken: string; refreshToken: string };
 
   return {
     tenantId: tenant.id,
@@ -96,6 +98,7 @@ export async function seedTenant(
     slug,
     email,
     accessToken: body.accessToken,
+    refreshToken: body.refreshToken,
     companies
   };
 }
