@@ -254,7 +254,78 @@ how "already used" leaks that the token was real.
 > **Not yet built:** an admin-facing *invite a colleague* endpoint. It needs
 > authentication to know who is inviting and into which tenant; shipping it
 > unauthenticated would let anyone invite themselves into any tenant and accept.
-> It lands with US-022.
+> The access token that makes it possible now exists (US-022), so this is
+> unblocked rather than waiting on anything.
+
+### Sign-in (US-021)
+
+```jsonc
+POST /auth/login { "slug": "acme", "email": "ali@example.com", "password": "…" }
+```
+
+The slug is required because `user.email` is unique per tenant — one address may
+exist in several tenants, so email alone is not an identity. The slug is a
+*claim*, verified here, never a context.
+
+**Every failure returns the same 401 with the same body**, in indistinguishable
+time: wrong password, unknown email, unknown slug, an invited user who has not
+set a password, a disabled user, and a soft-deleted tenant. Branches that stop
+before verifying a password burn an equivalent Argon2id hash, so "no such user"
+cannot be recognised by returning faster. The real cause is written to
+`auth_event`, where only an operator sees it.
+
+**Attempts are recorded outside the caller's control flow.** `authenticate`
+returns a result rather than throwing, because callers run it in a transaction —
+rejecting from inside rolled that transaction back and discarded the record of
+the failed attempt, which is the one a security review asks about. The 401 is
+raised after the commit.
+
+### Access tokens (US-022)
+
+A successful sign-in returns a signed access token alongside the identity:
+
+```jsonc
+{ "status": "authenticated", "user": {…}, "tenant": {…},
+  "accessToken": "eyJ…", "tokenType": "Bearer", "expiresIn": 900 }
+```
+
+The token is the **only** thing that says which tenant a request belongs to.
+`setRequestTenant()` is called from token verification and nowhere else, so the
+tenant cannot come from a header, a query parameter or a route parameter — US-012's
+rule, enforced at the edge. Anything a caller can type is something a caller can
+iterate.
+
+Claims are `sub`, `tenantId`, `tenantSlug`, `email` and `permissions`, signed
+HS256 with `AUTH_JWT_SECRET`. Issuer and audience are checked as well as the
+signature, so a token minted by another service sharing the key is not accepted.
+A correctly signed token whose shape is wrong — no `tenantId`, say — is rejected
+too: a signature proves the payload was not altered, not that it is what this
+code expects.
+
+**Fifteen minutes**, deliberately. Permissions are stamped in at sign-in rather
+than joined per request, so the expiry is what bounds how long a revoked
+permission keeps working. Long sessions need refresh tokens (US-023).
+
+> **Production refuses to start without `AUTH_JWT_SECRET`.** Outside production
+> it falls back to a visibly fake key named
+> `insecure-development-only-signing-key-do-not-use-in-production`, and logs a
+> warning. A silent fallback would make every token forgeable by anyone who has
+> read this repository.
+
+### Tenant-scoped routes
+
+```jsonc
+GET /companies         // the caller's own companies
+GET /companies/:id     // 404 for another tenant's id — never 403
+```
+
+Neither takes a tenant. The handler runs inside `withRequestTenantScope`, which
+reads the tenant from the token's claims and lets row level security do the
+filtering — there is no `WHERE tenant_id` in the service to get wrong.
+
+**404, never 403.** A 403 confirms the row exists, which turns an id into an
+oracle for another tenant's data. A malformed id is a 404 for the same reason: a
+400 would confirm the guess was at least well-formed.
 
 ### Adding an API route
 

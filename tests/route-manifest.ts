@@ -84,5 +84,26 @@ export const DECLARED_ROUTES: DeclaredRoute[] = [
     visibility: "public",
     note: "Redeems an invitation and sets a first password (US-020). Necessarily unauthenticated — the caller has no credential yet — so the token is both the credential and the tenant selector. Unknown, expired and already-accepted tokens are refused identically.",
     audits: ["invitation.accepted"]
+  },
+  {
+    method: "POST",
+    path: "/auth/login",
+    visibility: "public",
+    note: "Sign-in (US-021). Takes the tenant slug because email is unique per tenant, not globally. Wrong password, unknown email, unknown slug and a non-active user all return an identical 401, in indistinguishable time.",
+    audits: [],
+    noAuditReason:
+      "Sign-in attempts are recorded in auth_event, not audit_log. A failed attempt against an unknown slug has no tenant at all, and audit_log.tenant_id is NOT NULL — which is the reason auth_event exists."
+  },
+  {
+    method: "GET",
+    path: "/companies",
+    visibility: "tenant-scoped",
+    note: "The caller's own companies (US-022). No tenant in the path or the query: the tenant comes from the access token's claims via the request context, and RLS does the filtering."
+  },
+  {
+    method: "GET",
+    path: "/companies/:id",
+    visibility: "tenant-scoped",
+    note: "One company by id. Another tenant's id is invisible inside the scoped session, so it answers 404 — never 403, which would confirm the row exists."
   }
 ];

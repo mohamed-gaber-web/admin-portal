@@ -23,6 +23,15 @@ export {
   type UnscopedAccessOptions
 } from "./scoping";
 export {
+  authenticate,
+  recordAuthEvent,
+  INVALID_CREDENTIALS_MESSAGE,
+  type AuthenticationResult,
+  type AuthenticatedUser,
+  type RecordAuthEventInput,
+  type SignInInput
+} from "./authentication";
+export {
   issueInvitation,
   acceptInvitation,
   hashPassword,

@@ -9,3 +9,5 @@ export * from "./routes";
 export * from "./schemas/health";
 export * from "./schemas/tenant";
 export * from "./schemas/invitation";
+export * from "./schemas/auth";
+export * from "./schemas/company";

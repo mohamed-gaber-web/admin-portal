@@ -1,6 +1,8 @@
 import { MiddlewareConsumer, Module, type NestModule } from "@nestjs/common";
 import { AuthController } from "./auth/auth.controller";
 import { AuthService } from "./auth/auth.service";
+import { CompanyController } from "./company/company.controller";
+import { CompanyService } from "./company/company.service";
 import { DatabaseModule } from "./database/database.module";
 import { HealthController } from "./health/health.controller";
 import { HealthService } from "./health/health.service";
@@ -11,8 +13,8 @@ import { TenantService } from "./tenant/tenant.service";
 
 @Module({
   imports: [DatabaseModule, RedisModule],
-  controllers: [AuthController, HealthController, TenantController],
-  providers: [AuthService, HealthService, TenantService]
+  controllers: [AuthController, CompanyController, HealthController, TenantController],
+  providers: [AuthService, CompanyService, HealthService, TenantService]
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {

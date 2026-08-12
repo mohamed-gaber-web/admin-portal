@@ -10,5 +10,14 @@ export const API_ROUTES = {
    * has no credential yet, which is the entire point — so the token is the only
    * thing that identifies them, and it identifies the tenant too.
    */
-  acceptInvitation: "/auth/accept-invitation"
+  acceptInvitation: "/auth/accept-invitation",
+  /** Sign-in. Takes the tenant slug, because email alone is not an identity. */
+  login: "/auth/login",
+  /**
+   * The caller's own companies. There is no tenant in the path: the tenant comes
+   * from the access token's claims, so there is nothing here to iterate.
+   */
+  companies: "/companies",
+  /** One company by id. Another tenant's id is a 404, never a 403. */
+  company: "/companies/:id"
 } as const;
