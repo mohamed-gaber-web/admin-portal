@@ -186,6 +186,76 @@ readiness returns 503 — a dependency nobody configured is a dependency nobody 
 checking. Azure Redis Cache is TLS-only, so staging and production use
 `rediss://`.
 
+### Authentication schema (sprint S3)
+
+Local passwords with **Argon2id**, not Entra ID. `user.email` is unique per
+tenant, so an address alone does not identify a person and **sign-in supplies the
+tenant slug**:
+
+```jsonc
+POST /auth/login { "slug": "acme", "email": "ali@example.com", "password": "…" }
+```
+
+A bad slug, an unknown email and a wrong password must be indistinguishable in
+both message and response time.
+
+| Table | Holds |
+| ----- | ----- |
+| `user.password_hash` etc. | Credential, status, lockout counters, TOTP secret |
+| `role_permission` | Joins roles to the permission catalogue |
+| `user_invitation` | Hashed, expiring invitation tokens |
+| `refresh_token` | Rotation families, hashed, with replay detection |
+| `auth_event` | Every sign-in attempt, including tenantless ones |
+
+Nothing stores a usable credential: passwords are Argon2id digests, invitation
+and refresh tokens are stored hashed. A user is `invited` until it accepts one,
+and `status = 'active'` with no `password_hash` is rejected by a check
+constraint rather than surfacing later as a confusing login bug.
+
+**`auth_event` exists because `audit_log.tenant_id` is NOT NULL.** A failed
+sign-in for an address belonging to no tenant is exactly the event a security
+review asks about, and it cannot be written to a table that demands a tenant. So
+`auth_event.tenant_id` is nullable, its reads are tenant-scoped, and its writes
+deliberately are not — authentication runs before a tenant is in the session, and
+a write policy keyed on `current_tenant_id()` would make the failed case
+unrecordable. Rows are append-only.
+
+### Invitations (US-020)
+
+Provisioning creates a tenant's first admin **with no credential**, so a new
+tenant used to contain nobody who could ever sign in. `POST /tenants` now issues
+that admin an invitation and returns the link once:
+
+```jsonc
+// 201
+{
+  "tenant": { … }, "adminUser": { … }, "roles": [ … ],
+  "invitation": { "id": "…", "expiresAt": "…", "token": "…" }  // shown once
+}
+```
+
+The invitee redeems it unauthenticated — they have no credential yet, which is
+the point, and the token is what resolves the tenant:
+
+```jsonc
+POST /auth/accept-invitation { "token": "…", "password": "…" }  // 200
+```
+
+Two different hashes, for two different reasons. The **password** is Argon2id
+(19 MiB, t=2, p=1) because it is human-chosen and therefore guessable, so the
+cost per guess is the defence. The **token** is a SHA-256 digest because it is
+256 random bits — there is nothing to guess, and a 19 MiB hash on an
+unauthenticated lookup path would be a denial-of-service lever.
+
+Unknown, expired, already-accepted and disabled-user tokens are refused through
+one path with one error type, taking the same time — a per-reason error class is
+how "already used" leaks that the token was real.
+
+> **Not yet built:** an admin-facing *invite a colleague* endpoint. It needs
+> authentication to know who is inviting and into which tenant; shipping it
+> unauthenticated would let anyone invite themselves into any tenant and accept.
+> It lands with US-022.
+
 ### Adding an API route
 
 Every route must be classified in `tests/route-manifest.ts` as `public`,

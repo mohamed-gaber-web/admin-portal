@@ -73,8 +73,16 @@ export const DECLARED_ROUTES: DeclaredRoute[] = [
     path: "/tenants",
     visibility: "platform",
     note: "Provisions a tenant with its default roles and admin user (US-014). Creating a tenant cannot be scoped to that tenant, so it stays platform — it goes through the US-012 escape hatch, which logs the bypass with the request's correlation ID.",
-    // Two entries, because two different things happened: a tenant came into
-    // existence, and someone was granted a permission.
-    audits: ["tenant.provisioned", "role.assigned"]
+    // Three entries, because three different things happened: a tenant came
+    // into existence, someone was granted a permission, and the first admin
+    // was invited (US-020 — without which nobody could ever sign in).
+    audits: ["tenant.provisioned", "role.assigned", "invitation.issued"]
+  },
+  {
+    method: "POST",
+    path: "/auth/accept-invitation",
+    visibility: "public",
+    note: "Redeems an invitation and sets a first password (US-020). Necessarily unauthenticated — the caller has no credential yet — so the token is both the credential and the tenant selector. Unknown, expired and already-accepted tokens are refused identically.",
+    audits: ["invitation.accepted"]
   }
 ];

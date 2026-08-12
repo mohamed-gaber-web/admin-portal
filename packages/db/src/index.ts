@@ -23,6 +23,24 @@ export {
   type UnscopedAccessOptions
 } from "./scoping";
 export {
+  issueInvitation,
+  acceptInvitation,
+  hashPassword,
+  verifyPassword,
+  hashInvitationToken,
+  generateInvitationToken,
+  invitationTokenMatches,
+  burnPasswordHashingTime,
+  InvalidInvitationError,
+  UserAlreadyActiveError,
+  DEFAULT_INVITATION_TTL_HOURS,
+  PASSWORD_HASH_OPTIONS,
+  type AcceptInvitationInput,
+  type AcceptedInvitation,
+  type IssueInvitationInput,
+  type IssuedInvitation
+} from "./invitations";
+export {
   provisionTenant,
   provisionTenantOnClient,
   defaultAdminEmail,

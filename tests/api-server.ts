@@ -1,4 +1,4 @@
-import { execSync, spawn, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { join } from "node:path";
 import { repoRoot } from "./helpers";
 
@@ -18,20 +18,18 @@ export interface StartApiOptions {
 }
 
 /**
- * Builds the API (turbo builds @growpath/contracts first) and starts the real
- * compiled server on the given port, resolving once /health responds.
+ * Starts the real compiled server on the given port, resolving once /health
+ * responds.
+ *
+ * The build happens once in tests/global-setup.ts, not here. Building per call
+ * meant parallel test files ran concurrent `turbo build` invocations against the
+ * same `dist` that other processes were already executing.
  */
 export async function startApi(
   port: number,
   env: NodeJS.ProcessEnv = {},
   options: StartApiOptions = {}
 ): Promise<RunningApi> {
-  // execSync runs through the shell, which is required to invoke pnpm.cmd on Windows.
-  execSync("pnpm exec turbo run build --filter=@growpath/api", {
-    cwd: repoRoot,
-    stdio: "inherit"
-  });
-
   const server: ChildProcess = spawn(process.execPath, [join(repoRoot, "apps/api/dist/main.js")], {
     cwd: repoRoot,
     // Caller overrides win, so a test can point the API at a throwaway database.

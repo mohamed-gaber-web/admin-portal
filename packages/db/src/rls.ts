@@ -4,20 +4,34 @@ import type { Queryable } from "./tenancy";
 /** The root tenancy table. Its policy keys on `id`, not `tenant_id`. */
 export const ROOT_TENANT_TABLE = "tenant";
 
-/** Tenant-scoped tables, each carrying `tenant_id`. */
+/** Tenant-scoped tables, each carrying a non-null `tenant_id`. */
 export const TENANT_SCOPED_TABLES = [
   "d365_environment",
   "company",
   "user",
   "role",
   "user_role",
-  "audit_log"
+  "audit_log",
+  "role_permission",
+  "user_invitation",
+  "refresh_token"
 ] as const;
+
+/**
+ * Tables carrying a *nullable* `tenant_id`, which are therefore covered by the
+ * schema-derived audit but cannot be asserted on like the list above.
+ *
+ * `auth_event` is the only one: a failed sign-in for an unknown email has no
+ * tenant, and that is precisely the event worth recording. Its reads are
+ * scoped; its writes deliberately are not. See the S3 migration.
+ */
+export const PARTIALLY_SCOPED_TABLES = ["auth_event"] as const;
 
 /** Every table that must carry a tenant isolation policy. */
 export const PROTECTED_TABLES: readonly string[] = [
   ROOT_TENANT_TABLE,
-  ...TENANT_SCOPED_TABLES
+  ...TENANT_SCOPED_TABLES,
+  ...PARTIALLY_SCOPED_TABLES
 ];
 
 /** Session GUC holding the current tenant. */

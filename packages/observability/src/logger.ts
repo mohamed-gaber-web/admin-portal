@@ -68,21 +68,58 @@ function serializeError(err: unknown): LogFields {
   return { name: err.name, message: err.message, stack: err.stack };
 }
 
-/** JSON.stringify that survives circular references and BigInt. */
+/**
+ * JSON.stringify that survives circular references and BigInt.
+ *
+ * The set holds *ancestors*, not everything visited. Tracking every object seen
+ * anywhere would replace the second appearance of a repeated sibling with
+ * "[circular]" — and a before/after pair sharing a nested object is exactly the
+ * shape this logger is asked to write.
+ */
 function safeStringify(value: unknown): string {
-  const seen = new WeakSet<object>();
-  return JSON.stringify(value, (_key, val: unknown) => {
+  const ancestors = new Set<object>();
+
+  const prepare = (val: unknown): unknown => {
     if (typeof val === "bigint") {
       return val.toString();
     }
-    if (typeof val === "object" && val !== null) {
-      if (seen.has(val)) {
-        return "[circular]";
-      }
-      seen.add(val);
+    if (typeof val !== "object" || val === null) {
+      return val;
     }
-    return val;
-  });
+    if (ancestors.has(val)) {
+      return "[circular]";
+    }
+    if (val instanceof Date) {
+      return val.toISOString();
+    }
+
+    ancestors.add(val);
+    try {
+      if (Array.isArray(val)) {
+        return val.map((item) => prepare(item));
+      }
+      // Honour toJSON (Date is handled above; this covers everything else that
+      // defines one), then walk whatever it produced.
+      const source =
+        typeof (val as { toJSON?: unknown }).toJSON === "function"
+          ? (val as { toJSON: () => unknown }).toJSON()
+          : val;
+      if (typeof source !== "object" || source === null) {
+        return prepare(source);
+      }
+      const out: Record<string, unknown> = {};
+      for (const [key, item] of Object.entries(source)) {
+        out[key] = prepare(item);
+      }
+      return out;
+    } finally {
+      // Leaving the subtree: this object is no longer an ancestor, so a later
+      // sibling referencing it is a repeat rather than a cycle.
+      ancestors.delete(val);
+    }
+  };
+
+  return JSON.stringify(prepare(value));
 }
 
 function normalizeFields(fields: LogFields | undefined): RedactableValues {

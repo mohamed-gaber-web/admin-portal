@@ -22,32 +22,88 @@ export function isSecretKey(key: string): boolean {
   return SECRET_KEY.test(key);
 }
 
+/** Written in place of a value that refers back to one of its own ancestors. */
+export const CIRCULAR = "[circular]";
+
 function isPlainObject(value: unknown): value is RedactableValues {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function redactObject(values: RedactableValues): RedactableValues {
+/**
+ * Values that carry their own serialised form and must be treated as leaves.
+ *
+ * Walking a Date with Object.entries yields nothing — its fields are internal —
+ * so recursing into one silently replaced every timestamp with `{}`. That was
+ * invisible in the audit log: a before/after pair recorded that a date changed
+ * and stored `{}` for what it changed to.
+ */
+function selfSerialising(value: object): string | null {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  const candidate = (value as { toJSON?: unknown }).toJSON;
+  return typeof candidate === "function"
+    ? String((value as { toJSON: () => unknown }).toJSON())
+    : null;
+}
+
+function redactUnknown(value: unknown, ancestors: Set<object>): unknown {
+  if (typeof value !== "object" || value === null) {
+    return value;
+  }
+
+  // A cycle, not a repeat: `ancestors` is unwound on the way out, so the same
+  // object appearing twice side by side is kept both times.
+  if (ancestors.has(value)) {
+    return CIRCULAR;
+  }
+
+  if (Array.isArray(value)) {
+    ancestors.add(value);
+    try {
+      return value.map((item) => redactUnknown(item, ancestors));
+    } finally {
+      ancestors.delete(value);
+    }
+  }
+
+  const serialised = selfSerialising(value);
+  if (serialised !== null) {
+    return serialised;
+  }
+
+  if (!isPlainObject(value)) {
+    return value;
+  }
+
+  ancestors.add(value);
+  try {
+    return redactObject(value, ancestors);
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+function redactObject(values: RedactableValues, ancestors: Set<object>): RedactableValues {
   const out: RedactableValues = {};
   for (const [key, value] of Object.entries(values)) {
-    if (isSecretKey(key)) {
-      out[key] = REDACTED;
-    } else if (Array.isArray(value)) {
-      out[key] = value.map((item) => (isPlainObject(item) ? redactObject(item) : item));
-    } else if (isPlainObject(value)) {
-      out[key] = redactObject(value);
-    } else {
-      out[key] = value;
-    }
+    out[key] = isSecretKey(key) ? REDACTED : redactUnknown(value, ancestors);
   }
   return out;
 }
 
-/** Replaces every secret value with {@link REDACTED}, recursively. */
+/**
+ * Replaces every secret value with {@link REDACTED}, recursively.
+ *
+ * Survives cycles: without a guard this recursed until the stack overflowed, so
+ * logging an object that referred to itself threw a RangeError out of the
+ * logger — from inside the error path that was trying to report something else.
+ */
 export function redactValues(
   values: RedactableValues | null | undefined
 ): RedactableValues | null {
   if (!values) {
     return null;
   }
-  return redactObject(values);
+  return redactObject(values, new Set<object>());
 }

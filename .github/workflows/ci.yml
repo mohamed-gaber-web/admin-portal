@@ -3,7 +3,10 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    # This repository's default branch is master. It was [main] until S3, which
+    # meant no push to the default branch ever ran CI — only pull requests did.
+    # Both are listed so a later rename does not silently switch it off again.
+    branches: [master, main]
 
 jobs:
   lint:

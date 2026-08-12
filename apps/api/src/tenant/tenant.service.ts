@@ -18,7 +18,7 @@ export class TenantService {
       // created is the one there is no context for yet, so this is the one
       // operation that cannot be filtered by tenant. The escape hatch logs the
       // bypass with the request's correlation ID (US-012).
-      return await withoutTenantScope(
+      const result = await withoutTenantScope(
         this.pool,
         {
           reason:
@@ -30,6 +30,17 @@ export class TenantService {
           // self-declared.
           provisionTenantOnClient(client, input, { label: "platform-admin", ip: actorIp })
       );
+
+      return {
+        ...result,
+        invitation: {
+          ...result.invitation,
+          // The contract carries a string: a Date would be serialised by
+          // JSON.stringify anyway, and saying so in the schema is what lets a
+          // consumer rely on it.
+          expiresAt: result.invitation.expiresAt.toISOString()
+        }
+      };
     } catch (err) {
       if (err instanceof TenantAlreadyExistsError) {
         // 409, not a 500: the caller can fix this by choosing another slug.

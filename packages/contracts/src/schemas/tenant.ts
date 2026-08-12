@@ -33,7 +33,19 @@ export const provisionedTenantSchema = z.object({
       id: z.string().uuid(),
       name: z.string()
     })
-  )
+  ),
+  /**
+   * The first admin's invitation (US-020).
+   *
+   * Provisioning creates an admin user with no credential, so without this a
+   * new tenant contains nobody who can ever sign in. The token is returned
+   * here once and never again.
+   */
+  invitation: z.object({
+    id: z.string().uuid(),
+    expiresAt: z.string(),
+    token: z.string()
+  })
 });
 
 export type ProvisionedTenant = z.infer<typeof provisionedTenantSchema>;

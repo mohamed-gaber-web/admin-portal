@@ -6,6 +6,18 @@ export interface DemoUser {
   roles: string[];
 }
 
+/**
+ * Permissions granted to each demo role, derived rather than listed.
+ *
+ * `admin` holds the whole catalogue; `viewer` holds only the read half. Derived
+ * so that adding a permission to DEMO_PERMISSIONS cannot leave the demo roles
+ * quietly out of date.
+ */
+export function permissionsForRole(role: string): string[] {
+  const all = DEMO_PERMISSIONS.map((p) => p.key);
+  return role === "admin" ? all : all.filter((key) => key.endsWith(".read"));
+}
+
 export interface DemoAuditEntry {
   action: string;
   entityType: string;
@@ -94,6 +106,10 @@ export interface SeedSummary {
   roles: number;
   users: number;
   auditEntries: number;
+  rolePermissions: number;
+  invitations: number;
+  refreshTokens: number;
+  authEvents: number;
 }
 
 /** Runs a statement expected to RETURN one id, and returns that id. */
@@ -129,6 +145,11 @@ async function seedWithClient(client: PoolClient): Promise<SeedSummary> {
     );
   }
 
+  const catalogue = await client.query<{ id: string; key: string }>(
+    "SELECT id, key FROM permission"
+  );
+  const permissionIds = new Map(catalogue.rows.map((row) => [row.key, row.id]));
+
   const summary: SeedSummary = {
     tenants: 0,
     permissions: DEMO_PERMISSIONS.length,
@@ -136,7 +157,11 @@ async function seedWithClient(client: PoolClient): Promise<SeedSummary> {
     companies: 0,
     roles: 0,
     users: 0,
-    auditEntries: 0
+    auditEntries: 0,
+    rolePermissions: 0,
+    invitations: 0,
+    refreshTokens: 0,
+    authEvents: 0
   };
 
   for (const tenant of DEMO_TENANTS) {
@@ -189,6 +214,20 @@ async function seedWithClient(client: PoolClient): Promise<SeedSummary> {
       );
       roleIds.set(role, roleId);
       summary.roles += 1;
+
+      // Roles carried a name and no authority until S3 added role_permission.
+      for (const key of permissionsForRole(role)) {
+        const permissionId = permissionIds.get(key);
+        if (!permissionId) {
+          throw new Error(`demo data error: unknown permission "${key}"`);
+        }
+        await client.query(
+          `INSERT INTO role_permission (tenant_id, role_id, permission_id) VALUES ($1, $2, $3)
+           ON CONFLICT (role_id, permission_id) DO NOTHING`,
+          [tenantId, roleId, permissionId]
+        );
+        summary.rolePermissions += 1;
+      }
     }
 
     const userIds = new Map<string, string>();
@@ -203,6 +242,20 @@ async function seedWithClient(client: PoolClient): Promise<SeedSummary> {
       );
       userIds.set(user.email, userId);
       summary.users += 1;
+
+      // Demo users carry no password: hashing arrives with US-021, and the
+      // schema forbids an 'active' user with no credential. So each one holds
+      // a pending invitation, which is the real state of a freshly seeded
+      // tenant rather than a convenient fiction.
+      await client.query(
+        `INSERT INTO user_invitation (tenant_id, user_id, token_hash, expires_at)
+         SELECT $1, $2, $3, now() + interval '7 days'
+         WHERE NOT EXISTS (SELECT 1 FROM user_invitation WHERE user_id = $2)`,
+        // A digest of a token that was never issued: the column must never hold
+        // anything a caller could present, seeded or not.
+        [tenantId, userId, `seed:${tenant.slug}:${user.email}`]
+      );
+      summary.invitations += 1;
 
       for (const role of user.roles) {
         const roleId = roleIds.get(role);
@@ -237,7 +290,50 @@ async function seedWithClient(client: PoolClient): Promise<SeedSummary> {
       );
       summary.auditEntries += 1;
     }
+
+    const firstUserId = userIds.get(tenant.users[0].email)!;
+
+    /**
+     * One spent refresh token per tenant.
+     *
+     * Revoked and expired, because a seeded *usable* session token would be a
+     * working credential shipped in demo data. It exists so the isolation suite
+     * covers refresh_token before US-023 starts creating real ones — an
+     * unpopulated table makes those assertions pass vacuously.
+     */
+    await client.query(
+      `INSERT INTO refresh_token
+         (tenant_id, user_id, family_id, token_hash, expires_at, revoked_at, revoked_reason)
+       SELECT $1, $2, gen_random_uuid(), $3, now() - interval '1 day',
+              now() - interval '1 day', 'seed: historical session'
+       WHERE NOT EXISTS (SELECT 1 FROM refresh_token WHERE tenant_id = $1)`,
+      [tenantId, firstUserId, `seed:${tenant.slug}:refresh`]
+    );
+    summary.refreshTokens += 1;
+
+    await client.query(
+      `INSERT INTO auth_event
+         (tenant_id, user_id, claimed_slug, claimed_email, event, outcome, reason)
+       SELECT $1, $2, $3, $4, 'login.succeeded', 'succeeded', 'seeded'
+       WHERE NOT EXISTS (SELECT 1 FROM auth_event WHERE tenant_id = $1)`,
+      [tenantId, firstUserId, tenant.slug, tenant.users[0].email]
+    );
+    summary.authEvents += 1;
   }
+
+  /**
+   * A failed sign-in that belongs to no tenant.
+   *
+   * This is the row the whole nullable-tenant design exists for: someone tried
+   * an address that matches nothing, and that attempt is exactly what a
+   * security review asks about. It could not be written to audit_log at all.
+   */
+  await client.query(
+    `INSERT INTO auth_event (claimed_slug, claimed_email, event, outcome, reason)
+     SELECT 'unknown-tenant', 'nobody@example.test', 'login.failed', 'failed', 'no such tenant'
+     WHERE NOT EXISTS (SELECT 1 FROM auth_event WHERE tenant_id IS NULL)`
+  );
+  summary.authEvents += 1;
 
   return summary;
 }

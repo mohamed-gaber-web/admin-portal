@@ -1,5 +1,6 @@
 import type { Pool, PoolClient } from "pg";
 import { recordAuditEntry, type AuditActor } from "./audit";
+import { issueInvitation } from "./invitations";
 
 /** Roles every new tenant starts with. Matches the demo seed's conventions. */
 export const DEFAULT_ROLES = ["admin", "viewer"] as const;
@@ -36,6 +37,14 @@ export interface ProvisionTenantResult {
   tenant: { id: string; name: string; slug: string };
   adminUser: { id: string; email: string };
   roles: { id: string; name: string }[];
+  /**
+   * The first admin's invitation (US-020).
+   *
+   * Provisioning used to create an admin user with no credential, which meant a
+   * freshly provisioned tenant had nobody who could ever sign in. The token is
+   * returned exactly once here and stored only as a digest.
+   */
+  invitation: { id: string; expiresAt: Date; token: string };
 }
 
 /** The admin address used when the caller does not supply one. */
@@ -130,7 +139,21 @@ export async function provisionTenantOnClient(
     context: { roleId: adminRole.id }
   });
 
-  return { tenant, adminUser, roles };
+  // The tenant is useless without this: the admin row exists but has no
+  // credential, and there is no other way to obtain one.
+  const invitation = await issueInvitation(client, {
+    tenantId: tenant.id,
+    email: adminUser.email,
+    actor,
+    invitedBy: null
+  });
+
+  return {
+    tenant,
+    adminUser,
+    roles,
+    invitation: { id: invitation.id, expiresAt: invitation.expiresAt, token: invitation.token }
+  };
 }
 
 /**
