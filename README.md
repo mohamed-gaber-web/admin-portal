@@ -68,6 +68,58 @@ Seeding and platform-admin work run as the admin user and bypass RLS by design.
 A new tenant table with no policy is reported by `findTablesMissingRlsPolicies()`
 and fails CI.
 
+### Automatic tenant scoping
+
+Application code does not choose a tenant. `withRequestTenantScope(pool, fn)`
+takes the tenant from the authenticated request context, drops the session to
+`app_user` and sets `app.tenant_id` for the transaction — so every query on that
+client is filtered by the database.
+
+```ts
+const companies = await withRequestTenantScope(pool, (client) =>
+  client.query("SELECT * FROM company")   // no WHERE tenant_id, and none needed
+);
+```
+
+There is deliberately **no `tenantId` parameter**. A parameter can be fed from a
+header or a route param, and if a header can set the tenant, someone will
+iterate it. The tenant is set by authentication via `setRequestTenant()` and
+read from nowhere else. With no tenant in context the call **throws** rather
+than running unscoped — forgetting authentication is an error, not a
+cross-tenant read.
+
+A deliberate bypass goes through the escape hatch, which demands a reason and
+logs every use with the request's correlation ID:
+
+```ts
+await withoutTenantScope(pool, { reason: "Cross-tenant billing rollup" }, fn);
+// -> {"level":"warn","msg":"tenant.scope.bypassed","reason":"...","correlationId":"..."}
+```
+
+Tenant provisioning (`POST /tenants`) is the one path that uses it today: the
+tenant being created is the one there is no context for yet.
+
+### Logging
+
+`@growpath/observability` provides structured JSON logging. Every line carries
+`correlationId`, `tenantId` and `userId` from the request context automatically —
+present even when null, so "unknown" is a visible fact rather than a missing key.
+
+```ts
+apiLogger.info("tenant.provisioned", { slug });
+```
+
+The correlation ID comes from an inbound `x-correlation-id` when it is
+well-formed (it is caller-controlled text that lands in every line for that
+request), otherwise one is generated; either way it is echoed back on the
+response. Downstream calls join the same trace via `fetchWithCorrelation()`,
+which is how the D365 client in Sprint 5 should make every call.
+
+**Secrets never reach the log.** Fields are redacted by key using the same rule
+as the audit log, and nothing serialises a request body or header bag — there is
+no `log(req)`. Logged URLs keep the path and drop the query string, because no
+key-based rule can redact a token once it is flattened into a URL.
+
 ### Audit log
 
 `audit_log` is append-only. Write entries with `recordAuditEntry()`, never with
@@ -96,6 +148,44 @@ or user that has audit history is refused by foreign key.
 > `DISABLE TRIGGER` or drop them. Real immutability means shipping entries to
 > append-only storage outside this database.
 
+### Health and readiness
+
+Two endpoints answering two different questions. Do not merge them.
+
+| Endpoint | Question | Checks | Codes |
+| -------- | -------- | ------ | ----- |
+| `GET /health` | Is this process wedged? | Nothing downstream | 200 |
+| `GET /health/ready` | Should traffic come here? | Postgres + Redis | 200 / 503 |
+
+Point the orchestrator's **liveness** probe at `/health` and its **readiness**
+probe at `/health/ready`. If liveness checked Postgres, a database blip would
+fail it on every instance at once and the orchestrator would restart the whole
+fleet — a restart cannot fix a dependency that is down, so the outage gets worse
+rather than better. Readiness is where "the database is unreachable" belongs: it
+pulls the instance out of rotation and puts it back when the dependency returns.
+
+```jsonc
+// 503
+{ "status": "not_ready", "checks": { "database": "up", "redis": "down" } }
+```
+
+`up`, `down` or `not_configured` per dependency, and **nothing else**. The
+endpoint is unauthenticated — orchestrators cannot present credentials — so
+everything it returns is public: no driver message, host, port, credentials or
+stack trace. The cause is logged instead, with the request's correlation ID, so
+an operator can still diagnose it from somewhere access-controlled.
+
+Checks run concurrently, each capped at 2s. A probe that can hang is worse than
+one that fails: the orchestrator's own timeout fires instead, so the instance is
+reported unhealthy later than it needed to be.
+
+**`REDIS_URL` is required in production only.** The local stack does not run
+Redis, so leaving it unset reports `not_configured` and readiness still passes;
+with `NODE_ENV=production` an unset `REDIS_URL` is a misconfiguration and
+readiness returns 503 — a dependency nobody configured is a dependency nobody is
+checking. Azure Redis Cache is TLS-only, so staging and production use
+`rediss://`.
+
 ### Adding an API route
 
 Every route must be classified in `tests/route-manifest.ts` as `public`,
@@ -112,6 +202,30 @@ describe(coversRoute("GET /companies/:id"), () => {
 ```
 
 **404, never 403** — a 403 confirms the resource exists, which is itself a leak.
+
+A **mutating** route (`POST`, `PUT`, `PATCH`, `DELETE`) additionally needs an
+`audits` list naming the audit actions it writes:
+
+```ts
+{
+  method: "PATCH", path: "/connections/:id", visibility: "tenant-scoped",
+  note: "...",
+  audits: ["connection.updated"]
+}
+```
+
+CI checks each name against the `recordAuditEntry({ action: "..." })` calls in
+the source, and checks the reverse — an action written in the source that no
+route claims must be listed in `NON_ROUTE_AUDIT_ACTIONS` with a reason. So a
+route cannot claim an audit it does not write, and cannot quietly drop one it
+does.
+
+Deciding *not* to audit a mutation is allowed, but not silently: set
+`audits: []` together with a `noAuditReason`.
+
+This exists because a missing audit call fails silently — the endpoint works and
+its own tests pass, while the compliance answer is absent forever, since history
+you never recorded cannot be backfilled.
 
 ### Demo data
 

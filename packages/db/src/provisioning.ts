@@ -51,7 +51,16 @@ function isUniqueViolation(err: unknown): boolean {
   );
 }
 
-async function provisionWithClient(
+/**
+ * Provisioning on a caller-supplied client, which must already be in a
+ * transaction.
+ *
+ * Exported so the API can run it inside the US-012 escape hatch: provisioning
+ * genuinely cannot be tenant-scoped — the tenant does not exist yet — and going
+ * through `withoutTenantScope` is what puts that bypass in the log instead of
+ * leaving it as an unremarked use of the admin pool.
+ */
+export async function provisionTenantOnClient(
   client: PoolClient,
   input: ProvisionTenantInput,
   actor: AuditActor
@@ -142,7 +151,7 @@ export async function provisionTenant(
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const result = await provisionWithClient(client, input, actor);
+    const result = await provisionTenantOnClient(client, input, actor);
     await client.query("COMMIT");
     return result;
   } catch (err) {

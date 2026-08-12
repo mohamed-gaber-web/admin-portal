@@ -5,6 +5,16 @@ import { repoRoot } from "./helpers";
 export interface RunningApi {
   baseUrl: string;
   stop: () => void;
+  /**
+   * Everything the server has written to stdout/stderr, when started with
+   * `captureLogs`. Empty otherwise.
+   */
+  logs: () => string;
+}
+
+export interface StartApiOptions {
+  /** Buffer the server's output so a test can assert on its log lines. */
+  captureLogs?: boolean;
 }
 
 /**
@@ -13,7 +23,8 @@ export interface RunningApi {
  */
 export async function startApi(
   port: number,
-  env: NodeJS.ProcessEnv = {}
+  env: NodeJS.ProcessEnv = {},
+  options: StartApiOptions = {}
 ): Promise<RunningApi> {
   // execSync runs through the shell, which is required to invoke pnpm.cmd on Windows.
   execSync("pnpm exec turbo run build --filter=@growpath/api", {
@@ -25,14 +36,26 @@ export async function startApi(
     cwd: repoRoot,
     // Caller overrides win, so a test can point the API at a throwaway database.
     env: { ...process.env, PORT: String(port), ...env },
-    stdio: "ignore"
+    // Piped streams must be drained or the child blocks once its buffer fills.
+    stdio: options.captureLogs ? ["ignore", "pipe", "pipe"] : "ignore"
   });
+
+  let captured = "";
+  if (options.captureLogs) {
+    server.stdout?.on("data", (chunk: Buffer) => {
+      captured += chunk.toString("utf8");
+    });
+    server.stderr?.on("data", (chunk: Buffer) => {
+      captured += chunk.toString("utf8");
+    });
+  }
 
   await waitForHealth(`http://127.0.0.1:${port}/health`, 30000);
 
   return {
     baseUrl: `http://127.0.0.1:${port}`,
-    stop: () => server.kill()
+    stop: () => server.kill(),
+    logs: () => captured
   };
 }
 

@@ -13,10 +13,12 @@
   "dependencies": {
     "@growpath/contracts": "workspace:*",
     "@growpath/db": "workspace:*",
-    "pg": "^8.13.1",
+    "@growpath/observability": "workspace:*",
     "@nestjs/common": "^10.4.4",
     "@nestjs/core": "^10.4.4",
     "@nestjs/platform-express": "^10.4.4",
+    "ioredis": "^6.0.0",
+    "pg": "^8.13.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "zod": "^3.23.8"

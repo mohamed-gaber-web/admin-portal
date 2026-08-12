@@ -7,6 +7,16 @@ import { createThrowawayDatabase, type ThrowawayDatabase } from "./pg-helpers";
 import { startApi, type RunningApi } from "./api-server";
 import { recordAuditEntry, listAuditEntries, REDACTED } from "../packages/db/src/audit";
 import { createTenant, softDeleteTenant } from "../packages/db/src/tenancy";
+import {
+  discoverAuditActions,
+  findAuditGuardProblems,
+  type DiscoveredAuditAction
+} from "./audit-guard";
+import {
+  DECLARED_ROUTES,
+  NON_ROUTE_AUDIT_ACTIONS,
+  type DeclaredRoute
+} from "./route-manifest";
 
 const adminUrl = process.env.DATABASE_URL;
 const hasDb = Boolean(adminUrl);
@@ -177,5 +187,113 @@ describe.skipIf(!hasDb)("US-015 - append-only audit log", () => {
     }
     // Non-secret values are still there, so this is redaction and not blanket erasure.
     expect(stored).toContain("PROD");
+  });
+});
+
+// AC1, enforced for the routes that do not exist yet.
+//
+// The three tests above prove the audit log works for the mutations written so
+// far. They cannot prove the next mutation will use it, and that gap is not
+// hypothetical: AC1 is about a category of change, the API is going to grow
+// D365 connection endpoints carrying real client secrets, and an endpoint that
+// forgets to audit fails silently — it works, it passes its own tests, and the
+// history is simply absent when someone asks for it a year later.
+//
+// Static, so it runs without a database and can fail a pull request in the
+// lint-and-typecheck job rather than only in the integration run.
+describe("US-015 - audit coverage guard", () => {
+  it("AC1: a mutating route added without an audit decision fails the guard", () => {
+    // The API as it stands has an audit decision on record for every mutation.
+    const problems = findAuditGuardProblems(
+      DECLARED_ROUTES,
+      discoverAuditActions(),
+      NON_ROUTE_AUDIT_ACTIONS
+    );
+    expect(
+      problems,
+      `audit guard problems:\n${problems.map((p) => `  [${p.kind}] ${p.subject} — ${p.detail}`).join("\n")}`
+    ).toEqual([]);
+
+    // The scan found the real call sites. If the discovery regex silently broke,
+    // every check below would pass against an empty set.
+    const discovered = discoverAuditActions();
+    expect(discovered.length).toBeGreaterThanOrEqual(4);
+    expect(discovered.map((d) => d.action)).toContain("tenant.provisioned");
+    expect(discovered.map((d) => d.action)).toContain("role.assigned");
+    // And the declaration in audit.ts is not mistaken for a call site.
+    expect(discovered.filter((d) => d.source.endsWith("packages/db/src/audit.ts"))).toEqual([]);
+
+    // --- Negative controls -------------------------------------------------
+    // Without these, this test would pass just as happily against a guard that
+    // always returns an empty array.
+
+    const written = (...actions: string[]): DiscoveredAuditAction[] =>
+      actions.map((action) => ({
+        action,
+        rawArgument: `"${action}"`,
+        source: "packages/db/src/x.ts"
+      }));
+
+    const route = (method: string, extra: Partial<DeclaredRoute> = {}): DeclaredRoute => ({
+      method,
+      path: "/connections",
+      visibility: "tenant-scoped",
+      note: "",
+      ...extra
+    });
+
+    // 1. A new mutating route where nobody decided anything.
+    const undecided = findAuditGuardProblems([route("POST")], written("connection.created"), [
+      { action: "connection.created", note: "" }
+    ]);
+    expect(undecided.map((p) => p.kind)).toEqual(["undecided"]);
+
+    // 2. Opting out is allowed, but only out loud.
+    expect(
+      findAuditGuardProblems([route("DELETE", { audits: [] })], [], []).map((p) => p.kind)
+    ).toEqual(["unjustified"]);
+    expect(
+      findAuditGuardProblems(
+        [route("DELETE", { audits: [], noAuditReason: "Idempotent cache purge; changes no state." })],
+        [],
+        []
+      )
+    ).toEqual([]);
+
+    // 3. A route claiming an audit action that no code actually writes — the
+    //    manifest saying the right thing while the endpoint does not.
+    const lying = findAuditGuardProblems(
+      [route("PATCH", { audits: ["connection.updated"] })],
+      written("connection.created"),
+      [{ action: "connection.created", note: "" }]
+    );
+    expect(lying.map((p) => p.kind)).toEqual(["unknown-action"]);
+    expect(lying[0].subject).toBe("PATCH /connections -> connection.updated");
+
+    // 4. The other direction: an action written in the source that nothing
+    //    claims. This is what catches a route quietly dropping its audit call.
+    const orphan = findAuditGuardProblems([], written("connection.deleted"), []);
+    expect(orphan.map((p) => p.kind)).toEqual(["unclaimed-action"]);
+    expect(orphan[0].subject).toBe("connection.deleted");
+
+    // 5. An action the guard cannot read must fail loudly, not be skipped.
+    const unresolvable = findAuditGuardProblems(
+      [],
+      [{ action: null, rawArgument: "input.action", source: "packages/db/src/x.ts" }],
+      []
+    );
+    expect(unresolvable.map((p) => p.kind)).toEqual(["unresolvable-action"]);
+
+    // 6. Read-only routes are not asked to audit anything.
+    expect(findAuditGuardProblems([route("GET")], [], [])).toEqual([]);
+
+    // 7. And the clean case really is clean — the guard is not simply always angry.
+    expect(
+      findAuditGuardProblems(
+        [route("POST", { audits: ["connection.created"] })],
+        written("connection.created"),
+        []
+      )
+    ).toEqual([]);
   });
 });

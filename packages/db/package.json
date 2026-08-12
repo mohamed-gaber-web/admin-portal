@@ -15,6 +15,7 @@
     "seed": "node dist/seed-cli.js"
   },
   "dependencies": {
+    "@growpath/observability": "workspace:*",
     "node-pg-migrate": "^7.7.1",
     "pg": "^8.13.1"
   },

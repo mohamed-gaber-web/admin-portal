@@ -9,7 +9,9 @@ export const repoRoot = join(here, "..");
 export const WORKSPACES = [
   { name: "@growpath/api", dir: "apps/api" },
   { name: "@growpath/portal", dir: "apps/portal" },
-  { name: "@growpath/contracts", dir: "packages/contracts" }
+  { name: "@growpath/contracts", dir: "packages/contracts" },
+  { name: "@growpath/db", dir: "packages/db" },
+  { name: "@growpath/observability", dir: "packages/observability" }
 ] as const;
 
 export function readJson<T = Record<string, unknown>>(relativePath: string): T {

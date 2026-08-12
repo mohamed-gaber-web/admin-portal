@@ -15,7 +15,16 @@ export {
   type RecordAuditEntryInput
 } from "./audit";
 export {
+  withRequestTenantScope,
+  withoutTenantScope,
+  MissingTenantContextError,
+  UnscopedAccessError,
+  APPLICATION_ROLE,
+  type UnscopedAccessOptions
+} from "./scoping";
+export {
   provisionTenant,
+  provisionTenantOnClient,
   defaultAdminEmail,
   TenantAlreadyExistsError,
   DEFAULT_ROLES,
