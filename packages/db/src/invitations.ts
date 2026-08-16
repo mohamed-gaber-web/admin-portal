@@ -18,6 +18,21 @@ const TOKEN_BYTES = 32;
 export const DEFAULT_INVITATION_TTL_HOURS = 7 * 24;
 
 /**
+ * Shortest password this layer accepts, enforced server-side.
+ *
+ * Duplicated from `MIN_PASSWORD_LENGTH` in `@growpath/contracts` rather than
+ * imported: this package does not depend on the contracts package, and adding
+ * that dependency to share one integer would invert the layering — contracts
+ * describes the HTTP surface, and this is the last line of defence behind it.
+ *
+ * The two must agree, so a contract test asserts it. That is deliberately a
+ * test rather than a type: the schema rejecting a short password at the edge
+ * and the database accepting it would be a silent hole, and the failure worth
+ * having is a red build rather than a runtime surprise.
+ */
+export const MIN_PASSWORD_LENGTH = 8;
+
+/**
  * Argon2id parameters, following the OWASP baseline (19 MiB, 2 iterations, 1
  * lane). Deliberately slow: unlike the invitation token below, a password is
  * human-chosen and therefore guessable, so the cost of each guess is the
@@ -215,7 +230,7 @@ export async function acceptInvitation(
   db: Queryable,
   input: AcceptInvitationInput
 ): Promise<AcceptedInvitation> {
-  if (input.password.length < 12) {
+  if (input.password.length < MIN_PASSWORD_LENGTH) {
     // Checked before the token is looked at, so a weak password fails the same
     // way whether or not the token was real.
     await burnPasswordHashingTime();

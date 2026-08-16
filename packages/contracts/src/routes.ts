@@ -11,7 +11,10 @@ export const API_ROUTES = {
    * thing that identifies them, and it identifies the tenant too.
    */
   acceptInvitation: "/auth/accept-invitation",
-  /** Sign-in. Takes the tenant slug, because email alone is not an identity. */
+  /**
+   * Sign-in. Takes an address and a password; the workspace is resolved from
+   * the address rather than supplied, and returned in the response.
+   */
   login: "/auth/login",
   /**
    * Exchanges a refresh token for a new pair. Unauthenticated by necessity —
@@ -34,5 +37,162 @@ export const API_ROUTES = {
    */
   companies: "/companies",
   /** One company by id. Another tenant's id is a 404, never a 403. */
-  company: "/companies/:id"
+  company: "/companies/:id",
+  /**
+   * One tenant, with its environments and their legal entities.
+   *
+   * Platform, like the list: reading a tenant's identity is what the
+   * administration screens are for, and scoping it to the caller's own tenant
+   * would make the screen able to show exactly one row.
+   */
+  tenant: "/tenants/:id",
+  /**
+   * A tenant lifecycle transition — suspend, reactivate, archive, restore.
+   *
+   * Claims the `tenant.soft_deleted` and `tenant.restored` audit actions that
+   * `softDeleteTenant()` and `restoreTenant()` have been writing without a
+   * route since US-010.
+   */
+  tenantStatus: "/tenants/:id/status",
+  /** One tenant's recent audit entries, for the detail screen's feed. */
+  tenantActivity: "/tenants/:id/activity",
+  /**
+   * The caller's own tenant's users. No tenant in the path or the query: it
+   * comes from the access token's claims, and RLS does the filtering.
+   */
+  users: "/users",
+  /** One user by id. Another tenant's id is a 404, never a 403. */
+  user: "/users/:id",
+  /** Suspending or reactivating an account. */
+  userStatus: "/users/:id/status",
+  /** Replacing the set of roles a user holds. */
+  userRoles: "/users/:id/roles",
+  /**
+   * Issuing an invitation to join the caller's tenant.
+   *
+   * Distinct from `acceptInvitation`, which redeems one and is necessarily
+   * unauthenticated. This one requires a token, because the tenant being
+   * invited into comes from the caller's claims.
+   */
+  userInvitations: "/users/invitations",
+  /** The caller's tenant's roles, with the permissions each holds. */
+  roles: "/roles",
+  /** Replacing the permissions on one role. */
+  rolePermissions: "/roles/:id/permissions",
+  /** The caller's tenant's audit trail. */
+  activity: "/activity",
+
+  /**
+   * The caller's own module entitlements (US-072).
+   *
+   * Read-only, and the read-only-ness is the point: which modules a tenant holds
+   * is a commercial fact decided by whoever operates the installation, not
+   * something a tenant grants itself. The writing counterpart is
+   * `platformTenantModules`, behind a platform permission.
+   *
+   * No tenant in the path — it comes from the access token's claims, and row
+   * level security on `tenant_module` does the filtering.
+   */
+  modules: "/modules",
+
+  /**
+   * D365 connections — one per environment, keyed by the environment's id
+   * (US-040).
+   *
+   * No tenant in the path: it comes from the access token's claims, and RLS on
+   * `d365_environment` does the filtering, so another tenant's environment id is
+   * a 404 rather than something the service has to check for.
+   */
+  connections: "/connections",
+  /** One connection. Reads never carry the client secret — there is no field for it. */
+  connection: "/connections/:id",
+  /**
+   * A live credential check that saves nothing.
+   *
+   * Distinct from `PUT /connections/:id`, which runs the same check and persists
+   * only if it passes. This one exists for the *Test connection* button and for
+   * re-checking a configuration that was working yesterday.
+   */
+  connectionTest: "/connections/:id/test",
+
+  /**
+   * The caller's tenant's mobile configuration, for administering it.
+   *
+   * Note the near-miss with `mobileConfig` below, which is not an accident:
+   * this path is the **record**, reachable only with a token; that one is the
+   * **projection** a device downloads. They return different shapes on purpose,
+   * and the device-facing one is `strict()` so a field cannot leak from this
+   * side to that one without a contract test failing.
+   */
+  tenantMobileConfig: "/mobile-config",
+
+  /**
+   * What a device fetches at launch, replacing its bundled `environment.ts`
+   * (US-040).
+   *
+   * **Unauthenticated by necessity**, and the only route in this file that takes
+   * a tenant identifier from the caller: a freshly installed app holds a slug and
+   * nothing else, so there is no token for the tenant to come from. That is
+   * exactly the position `POST /auth/login` is in, and the slug is treated the
+   * same way — a claim, resolved and never trusted as a context.
+   *
+   * It carries no credential of any kind. The D365 client secret is not merely
+   * omitted from the response; it is in a different table that this endpoint's
+   * query does not name.
+   */
+  mobileConfig: "/mobile/config",
+
+  /**
+   * The platform tier — every tenant and every user, across the installation.
+   *
+   * Prefixed rather than folded into the routes above, and the prefix is the
+   * point: `GET /tenants` answers "my tenant" and `GET /platform/tenants`
+   * answers "all of them". One route whose meaning depended on the caller's
+   * permissions would be a route where forgetting the check leaks the customer
+   * list to every tenant — the exact regression US-063 was written to fix.
+   *
+   * Every one of these requires a `platform.*` permission *and* a caller inside
+   * the reserved platform tenant.
+   */
+  platformTenants: "/platform/tenants",
+  platformTenant: "/platform/tenants/:id",
+  platformTenantStatus: "/platform/tenants/:id/status",
+  platformTenantActivity: "/platform/tenants/:id/activity",
+  /**
+   * A tenant's commercial plan, and cancelling it (US-072).
+   *
+   * Separate from `platformTenantStatus` because the two are separate
+   * decisions: suspending a tenant is an operational act that locks everyone
+   * out, and unsubscribing one is a commercial act that need not. Folding both
+   * into one route would make "cancel their subscription" and "cut off their
+   * access" the same button.
+   */
+  platformTenantPlan: "/platform/tenants/:id/plan",
+  /** Which modules a tenant is entitled to. The whole set, replaced at once. */
+  platformTenantModules: "/platform/tenants/:id/modules",
+
+  platformUsers: "/platform/users",
+  platformUser: "/platform/users/:id",
+  platformUserStatus: "/platform/users/:id/status",
+
+  /**
+   * The operators themselves.
+   *
+   * `GET` lists them; `POST` mints one and returns a one-time invitation. This
+   * is the same bootstrap `pnpm platform-admin` performs from a shell — the
+   * difference is only that an operator who is already signed in does not have
+   * to find a machine with the database credentials to add a colleague.
+   */
+  platformAdmins: "/platform/admins",
+
+  /**
+   * The permission catalogue, whole.
+   *
+   * Read-only: `permission` is a global table the application holds `SELECT`
+   * on and nothing else, so there is no writing counterpart and there cannot
+   * be one. It exists so an operator can see every key the installation
+   * defines, including the `platform.*` half that never appears in a tenant's
+   * own role matrix.
+   */
+  platformPermissions: "/platform/permissions"
 } as const;

@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { recordAuditEntry } from "./audit";
 import { recordAuthEvent } from "./authentication";
-import { hashPassword } from "./invitations";
+import { hashPassword, MIN_PASSWORD_LENGTH } from "./invitations";
 import type { Queryable } from "./tenancy";
 
 /**
@@ -49,7 +49,7 @@ export function hashResetToken(token: string): string {
 }
 
 export interface RequestPasswordResetInput {
-  slug: string;
+  /** The whole of the supplied identity, as at sign-in. No slug. */
   email: string;
   ip?: string | null;
   userAgent?: string | null;
@@ -70,13 +70,14 @@ interface CandidateRow {
   user_id: string;
   email: string;
   status: string;
+  tenant_deleted_at: Date | null;
 }
 
 /**
  * Issues a reset token, or quietly does nothing.
  *
- * Returns null when there is no account to reset — an unknown slug, an unknown
- * address, or a user who has never accepted an invitation and so has no
+ * Returns null when there is no account to reset — an unknown address, an
+ * archived tenant, or a user who has never accepted an invitation and so has no
  * password to replace. **The caller must answer identically either way** (AC1);
  * this returning null is not an error and must not become one.
  *
@@ -88,30 +89,35 @@ export async function requestPasswordReset(
   db: Queryable,
   input: RequestPasswordResetInput
 ): Promise<IssuedPasswordReset | null> {
-  const slug = input.slug.trim();
   const email = input.email.trim();
 
-  // One query for both, so an unknown slug and an unknown address cost the same.
+  // Keyed on the address alone, matching sign-in: it is unique across the
+  // installation, so it resolves the tenant rather than needing one supplied.
   const candidate = await db.query<CandidateRow>(
-    `SELECT t.id AS tenant_id, u.id AS user_id, u.email, u.status
-     FROM tenant t
-     LEFT JOIN "user" u ON u.tenant_id = t.id AND lower(u.email) = lower($2)
-     WHERE t.slug = lower($1) AND t.deleted_at IS NULL`,
-    [slug, email]
+    `SELECT t.id AS tenant_id, u.id AS user_id, u.email, u.status,
+            t.deleted_at AS tenant_deleted_at
+     FROM "user" u
+     JOIN tenant t ON t.id = u.tenant_id
+     WHERE lower(u.email) = lower($1)`,
+    [email]
   );
 
   const row = candidate.rows[0];
-  const eligible = Boolean(row?.user_id) && row.status === "active";
+  const eligible = Boolean(row) && row.status === "active" && !row.tenant_deleted_at;
 
   if (!eligible) {
     await recordAuthEvent(db, {
       tenantId: row?.tenant_id ?? null,
       userId: row?.user_id ?? null,
-      claimedSlug: slug,
+      claimedSlug: null,
       claimedEmail: email,
       event: "password_reset.requested",
       outcome: "failed",
-      reason: !row ? "no such tenant" : !row.user_id ? "no such user" : "user not active",
+      reason: !row
+        ? "no such user"
+        : row.tenant_deleted_at
+          ? "tenant archived"
+          : "user not active",
       ip: input.ip,
       userAgent: input.userAgent
     });
@@ -131,7 +137,7 @@ export async function requestPasswordReset(
   await recordAuthEvent(db, {
     tenantId: row.tenant_id,
     userId: row.user_id,
-    claimedSlug: slug,
+    claimedSlug: null,
     claimedEmail: email,
     event: "password_reset.requested",
     outcome: "succeeded",
@@ -198,7 +204,7 @@ export async function completePasswordReset(
   db: Queryable,
   input: CompletePasswordResetInput
 ): Promise<PasswordResetResult> {
-  if (input.password.length < 12) {
+  if (input.password.length < MIN_PASSWORD_LENGTH) {
     // Checked before the token is looked at, so a weak password fails the same
     // way whether or not the token was real.
     return { ok: false };

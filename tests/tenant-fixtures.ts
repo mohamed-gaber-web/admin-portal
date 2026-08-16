@@ -1,6 +1,8 @@
 import type { Pool } from "pg";
 import { createCompany, createEnvironment, createTenant } from "../packages/db/src/tenancy";
 import { acceptInvitation, issueInvitation } from "../packages/db/src/invitations";
+import { ensurePlatformAdmin, PLATFORM_TENANT_SLUG } from "../packages/db/src/platform";
+import type { Queryable } from "../packages/db/src/tenancy";
 import { API_ROUTES } from "../packages/contracts/src/routes";
 
 /** Long enough to clear the 12-character minimum in `acceptInvitation`. */
@@ -85,7 +87,7 @@ export async function seedTenant(
   const res = await fetch(`${baseUrl}${API_ROUTES.login}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ slug, email, password: FIXTURE_PASSWORD })
+    body: JSON.stringify({ email, password: FIXTURE_PASSWORD })
   });
   if (res.status !== 200) {
     throw new Error(`fixture sign-in failed for ${slug}: ${res.status} ${await res.text()}`);
@@ -100,6 +102,67 @@ export async function seedTenant(
     accessToken: body.accessToken,
     refreshToken: body.refreshToken,
     companies
+  };
+}
+
+export interface PlatformAdminFixture {
+  tenantId: string;
+  userId: string;
+  email: string;
+  slug: string;
+  accessToken: string;
+  /** `Authorization` header, since almost every use is passing exactly this. */
+  headers: Record<string, string>;
+}
+
+/**
+ * A signed-in platform administrator.
+ *
+ * Needed by every suite that provisions a tenant over HTTP: `POST /tenants` is
+ * no longer unauthenticated, because an open endpoint that mints tenants is one
+ * anybody who can reach the port may use, and a signed-in tenant administrator
+ * could use it too.
+ *
+ * Built through the real `pnpm platform-admin` path — `ensurePlatformAdmin`,
+ * accept, sign in — rather than by inserting rows and forging a token. A
+ * fixture that took a shortcut here would pass while the bootstrap it stands in
+ * for was broken, which is the one thing this account cannot afford.
+ *
+ * The reserved tenant itself comes from the platform-administration migration,
+ * so a throwaway test database has it as soon as it is migrated.
+ */
+export async function seedPlatformAdmin(
+  db: Queryable,
+  baseUrl: string,
+  email = "operator@platform.test"
+): Promise<PlatformAdminFixture> {
+  const result = await ensurePlatformAdmin(db, { email, name: "Test Operator" });
+  if (!result.invitation) {
+    throw new Error(`platform admin ${email} already has a credential; use a fresh address`);
+  }
+
+  await acceptInvitation(db, {
+    token: result.invitation.token,
+    password: FIXTURE_PASSWORD
+  });
+
+  const res = await fetch(`${baseUrl}${API_ROUTES.login}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, password: FIXTURE_PASSWORD })
+  });
+  if (res.status !== 200) {
+    throw new Error(`platform admin sign-in failed: ${res.status} ${await res.text()}`);
+  }
+  const body = (await res.json()) as { accessToken: string };
+
+  return {
+    tenantId: result.tenant.id,
+    userId: result.userId,
+    email,
+    slug: PLATFORM_TENANT_SLUG,
+    accessToken: body.accessToken,
+    headers: { authorization: `Bearer ${body.accessToken}` }
   };
 }
 

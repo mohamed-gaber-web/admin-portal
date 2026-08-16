@@ -25,10 +25,20 @@ import {
   type SignInResponse,
   type VerifyMfaInput
 } from "@growpath/contracts";
+import { RateLimitGuard } from "../common/rate-limit.guard";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { AuthService } from "./auth.service";
 
+/**
+ * Every route here is throttled per source (US-026).
+ *
+ * Applied at the controller rather than per route, so a route added later is
+ * covered by default. These are the endpoints an attacker can reach without a
+ * credential — the ones worth guessing at — and exempting one is the kind of
+ * omission nobody notices until it is being used.
+ */
 @Controller()
+@UseGuards(RateLimitGuard)
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 

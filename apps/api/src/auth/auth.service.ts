@@ -88,13 +88,14 @@ export class AuthService {
     userAgent: string | null
   ): Promise<SignInResponse> {
     // Unscoped by necessity: the caller has no session yet, and which tenant
-    // they belong to is the question this request answers. The slug they
-    // supplied is a claim, not a context — it is verified here, never trusted.
+    // they belong to is the question this request answers. Nothing in the
+    // request names a tenant at all now — the address resolves one, and only
+    // once the password checks out does that resolution become a context.
     const outcome = await withoutTenantScope(
       this.pool,
       {
         reason:
-          "Sign-in precedes any tenant context; the supplied slug is an unverified claim until the credential checks out (US-021)."
+          "Sign-in precedes any tenant context; the tenant is resolved from the address and is not a context until the credential checks out (US-021)."
       },
       async (client) => {
         const result = await authenticate(client, { ...input, ip, userAgent });
@@ -299,7 +300,7 @@ export class AuthService {
       this.pool,
       {
         reason:
-          "A reset request arrives with no session; the slug and address are unverified claims until they are looked up (US-024)."
+          "A reset request arrives with no session; the address is an unverified claim until it is looked up (US-024)."
       },
       (client) => requestPasswordReset(client, { ...input, ip, userAgent })
     );
@@ -369,10 +370,17 @@ export class AuthService {
     return {
       status: "authenticated",
       user: { id: user.userId, email: user.email },
-      tenant: { id: user.tenantId, slug: user.tenantSlug },
+      // The workspace, carried out because nothing carried one in. The name is
+      // what the portal shows; the slug stays for anything that keys on it.
+      tenant: { id: user.tenantId, slug: user.tenantSlug, name: user.tenantName },
       accessToken: token,
       tokenType: "Bearer",
       expiresIn,
+      // The same list the token carries, surfaced so a client can decide what
+      // to render — the platform section of the navigation, for instance. It
+      // discloses nothing the holder cannot already read out of the JWT
+      // payload, and no server-side check reads it back.
+      permissions: user.permissions,
       refreshToken: refresh.token,
       refreshExpiresIn: Math.max(
         0,

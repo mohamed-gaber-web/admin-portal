@@ -3,12 +3,15 @@ import { z } from "zod";
 /**
  * Payload accepted when signing in.
  *
- * `slug` is required because `user.email` is unique per tenant, not globally —
- * one address may exist in several tenants, so email alone does not identify a
- * person.
+ * An address and a password, and nothing else. `user.email` is unique across the
+ * installation (see the global-email-identity migration), so the address
+ * identifies one person and the API resolves their workspace from it — which is
+ * strictly better than taking a slug, because a tenant identifier the caller
+ * sends is a tenant identifier the caller can iterate.
+ *
+ * The workspace comes back in `authenticatedSchema.tenant`.
  */
 export const signInSchema = z.object({
-  slug: z.string().min(1),
   email: z.string().min(1),
   password: z.string().min(1)
 });
@@ -34,10 +37,34 @@ export const authenticatedSchema = z
   .object({
     status: z.literal("authenticated"),
     user: z.object({ id: z.string().uuid(), email: z.string() }).strict(),
-    tenant: z.object({ id: z.string().uuid(), slug: z.string() }).strict(),
+    /**
+     * The workspace this sign-in landed in.
+     *
+     * `name` alongside the slug, and it is load-bearing rather than cosmetic:
+     * the caller no longer tells the API which workspace they meant, so this is
+     * the only place they find out. A slug is an identifier — `name` is what
+     * somebody recognises as their own organisation.
+     */
+    tenant: z
+      .object({ id: z.string().uuid(), slug: z.string(), name: z.string() })
+      .strict(),
     accessToken: z.string().min(1),
     tokenType: z.literal("Bearer"),
     expiresIn: z.number().int().positive(),
+    /**
+     * What this session may do, mirroring the token's own `permissions` claim.
+     *
+     * Returned so a client can decide what to *render* — whether to show the
+     * platform section of the navigation, for instance. It discloses nothing
+     * new: the same list is already in the JWT payload, which is base64, not
+     * encrypted, and readable by whoever holds the token.
+     *
+     * It is not an authorisation decision, and no server-side check reads it
+     * back. The API re-checks every request against the signed claim, so a
+     * client that edits this array changes which buttons it draws and nothing
+     * else.
+     */
+    permissions: z.array(z.string()),
     /**
      * Exchanged at `/auth/refresh` for a new pair (US-023). Single use: the
      * token returned here stops working the moment it is exchanged, and
@@ -68,11 +95,12 @@ export type RefreshInput = z.infer<typeof refreshSchema>;
 /**
  * Payload accepted when asking for a reset link.
  *
- * The slug is required for the same reason sign-in needs it: an address is not
- * an identity here, it is an identity *within a tenant*.
+ * The address alone, for the same reason sign-in takes it alone: it is the
+ * identity. Asking for a slug here would also be worse than useless — someone
+ * who has forgotten their password is exactly the person least likely to
+ * remember which slug their workspace uses.
  */
 export const requestPasswordResetSchema = z.object({
-  slug: z.string().min(1),
   email: z.string().min(1)
 });
 

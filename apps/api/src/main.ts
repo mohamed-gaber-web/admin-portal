@@ -1,9 +1,25 @@
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import helmet from "helmet";
+import { loadRepoEnv } from "@growpath/db";
 import { AppModule } from "./app.module";
 import { apiLogger } from "./observability/logger";
 import { CORRELATION_ID_HEADER } from "@growpath/observability";
+
+/**
+ * Loads the repo-root `.env`, if there is one and nothing has set DATABASE_URL.
+ *
+ * The migration CLIs went through `scripts/with-env.mjs` for this while the API
+ * did not, so `pnpm dev` started the portal and then failed the API with
+ * "DATABASE_URL is not set" — the one command a new contributor runs first.
+ * `with-env.mjs` cannot be reused here: it forces cwd to the repo root, and
+ * `nest start` has to run inside `apps/api` to find its own config.
+ *
+ * Called before anything imports a pool, and before `AppModule` is constructed.
+ * An already-exported variable always wins, so this changes nothing in CI or in
+ * production, where the environment comes from the platform and no .env exists.
+ */
+loadRepoEnv();
 
 /**
  * Origins allowed to call this API with credentials.

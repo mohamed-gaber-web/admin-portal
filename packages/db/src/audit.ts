@@ -1,4 +1,12 @@
 import { isSecretKey, redactValues, REDACTED, type RedactableValues } from "@growpath/observability";
+import {
+  likeArgument,
+  limitOffset,
+  toPage,
+  type PageRequest,
+  type PagedResult,
+  type RowWithTotal
+} from "./paging";
 import type { Queryable } from "./tenancy";
 
 /**
@@ -148,6 +156,54 @@ export async function listAuditEntries(db: Queryable, tenantId: string): Promise
             entity_id, before_values, after_values, changed_fields, created_at
      FROM audit_log WHERE tenant_id = $1 ORDER BY created_at, id`,
     [tenantId]
+  );
+  return res.rows.map(toEntry);
+}
+
+/**
+ * One page of the caller's tenant's audit trail, newest first.
+ *
+ * Newest first, unlike `listAuditEntries` — that one is read by tests that
+ * assert on a sequence of events, where chronological order is what makes the
+ * assertion readable. A feed is read from the top.
+ */
+export async function listAuditPage(
+  db: Queryable,
+  request: PageRequest
+): Promise<PagedResult<AuditEntry>> {
+  const like = likeArgument(request.search);
+  const { limit, offset } = limitOffset(request);
+
+  const res = await db.query<AuditRow & RowWithTotal>(
+    `SELECT id, tenant_id, user_id, actor_label, actor_ip, action, entity_type,
+            entity_id, before_values, after_values, changed_fields, created_at,
+            count(*) OVER () AS total_count
+     FROM audit_log
+     WHERE ($1::text IS NULL
+            OR action ILIKE $1 ESCAPE '\\'
+            OR actor_label ILIKE $1 ESCAPE '\\'
+            OR coalesce(entity_id, '') ILIKE $1 ESCAPE '\\')
+     ORDER BY created_at DESC, id DESC
+     LIMIT $2 OFFSET $3`,
+    [like, limit, offset]
+  );
+
+  return toPage(res.rows, request, toEntry);
+}
+
+/** Every audit entry for one tenant, newest first. Used by the tenant detail screen. */
+export async function listAuditEntriesForTenant(
+  db: Queryable,
+  tenantId: string,
+  limit = 20
+): Promise<AuditEntry[]> {
+  const res = await db.query<AuditRow>(
+    `SELECT id, tenant_id, user_id, actor_label, actor_ip, action, entity_type,
+            entity_id, before_values, after_values, changed_fields, created_at
+     FROM audit_log WHERE tenant_id = $1
+     ORDER BY created_at DESC, id DESC
+     LIMIT $2`,
+    [tenantId, limit]
   );
   return res.rows.map(toEntry);
 }

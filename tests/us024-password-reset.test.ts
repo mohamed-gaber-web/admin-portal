@@ -6,6 +6,7 @@ import { repoRoot } from "./helpers";
 import { createThrowawayDatabase, type ThrowawayDatabase } from "./pg-helpers";
 import { startApi, type RunningApi } from "./api-server";
 import { seedTenant, FIXTURE_PASSWORD, type TenantFixture } from "./tenant-fixtures";
+import { issueInvitation } from "../packages/db/src/invitations";
 import { requestPasswordReset, hashResetToken } from "../packages/db/src/password-reset";
 import { hashRefreshToken } from "../packages/db/src/refresh-tokens";
 import { API_ROUTES } from "../packages/contracts/src/routes";
@@ -69,11 +70,11 @@ describe.skipIf(!hasDb)("US-024 - password reset", () => {
       body: JSON.stringify(body)
     });
 
-  const login = (slug: string, email: string, password: string): Promise<Response> =>
+  const login = (email: string, password: string): Promise<Response> =>
     fetch(`${api!.baseUrl}${API_ROUTES.login}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ slug, email, password })
+      body: JSON.stringify({ email, password })
     });
 
   /**
@@ -84,10 +85,7 @@ describe.skipIf(!hasDb)("US-024 - password reset", () => {
    * every account resettable by anyone.
    */
   async function tokenFor(fixture: TenantFixture): Promise<string> {
-    const issued = await requestPasswordReset(pool, {
-      slug: fixture.slug,
-      email: fixture.email
-    });
+    const issued = await requestPasswordReset(pool, { email: fixture.email });
     if (!issued) {
       throw new Error(`no reset token issued for ${fixture.slug}`);
     }
@@ -107,11 +105,21 @@ describe.skipIf(!hasDb)("US-024 - password reset", () => {
   it("AC1: the response is identical whether or not the account exists", async () => {
     const real = await seedTenant(pool, api!.baseUrl, "acme-forgot", {});
 
+    // Invited but never accepted, so the row exists with no credential to
+    // replace. With the slug gone this is what keeps the test honest: without
+    // it every non-real case would collapse into "no such user", and the
+    // assertion below would prove only that one branch answers consistently
+    // with itself.
+    await issueInvitation(pool, {
+      tenantId: real.tenantId,
+      email: "pending@acme-forgot.local",
+      actor: { label: "platform-admin" }
+    });
+
     const responses = await Promise.all([
-      forgot({ slug: real.slug, email: real.email }), // exists
-      forgot({ slug: real.slug, email: "nobody@acme-forgot.local" }), // tenant, no user
-      forgot({ slug: "no-such-tenant", email: real.email }), // no tenant
-      forgot({ slug: "no-such-tenant", email: "nobody@nowhere.local" }) // neither
+      forgot({ email: real.email }), // exists, resettable
+      forgot({ email: "pending@acme-forgot.local" }), // exists, no credential
+      forgot({ email: "nobody@nowhere.local" }) // no such address
     ]);
 
     const seen = new Set<string>();
@@ -136,9 +144,9 @@ describe.skipIf(!hasDb)("US-024 - password reset", () => {
 
     // And the difference is visible where it should be: the log.
     const requests = await authEvents("password_reset.requested");
-    expect(requests.length).toBeGreaterThanOrEqual(4);
-    expect(requests.some((r) => r.reason === "no such tenant")).toBe(true);
+    expect(requests.length).toBeGreaterThanOrEqual(3);
     expect(requests.some((r) => r.reason === "no such user")).toBe(true);
+    expect(requests.some((r) => r.reason === "user not active")).toBe(true);
   });
 
   // AC2: Given a valid single-use reset token, when a new password is set, then
@@ -148,7 +156,7 @@ describe.skipIf(!hasDb)("US-024 - password reset", () => {
     const user = await seedTenant(pool, api!.baseUrl, "acme-reset", {});
 
     // Two live sessions, so "every family" means more than one.
-    const second = await login(user.slug, user.email, FIXTURE_PASSWORD);
+    const second = await login(user.email, FIXTURE_PASSWORD);
     expect(second.status).toBe(200);
     const secondSession = (await second.json()) as { refreshToken: string };
 
@@ -205,8 +213,8 @@ describe.skipIf(!hasDb)("US-024 - password reset", () => {
     expect((await reset({ token, password: "another-password-entirely" })).status).toBe(400);
 
     // The new password works and the old one does not.
-    expect((await login(user.slug, user.email, NEW_PASSWORD)).status).toBe(200);
-    expect((await login(user.slug, user.email, FIXTURE_PASSWORD)).status).toBe(401);
+    expect((await login(user.email, NEW_PASSWORD)).status).toBe(200);
+    expect((await login(user.email, FIXTURE_PASSWORD)).status).toBe(401);
 
     // The credential change is in the audit log, without either value.
     const audit = await pool.query<{ row: string; changed_fields: string[] }>(
@@ -300,7 +308,7 @@ describe.skipIf(!hasDb)("US-024 - password reset", () => {
     expect(outstanding.rows[0].count).toBe(0);
 
     // And the password that won is the one from the redeemed link.
-    expect((await login(user.slug, user.email, NEW_PASSWORD)).status).toBe(200);
+    expect((await login(user.email, NEW_PASSWORD)).status).toBe(200);
   });
 
   it("does not leave a stale refresh token usable after a reset", async () => {

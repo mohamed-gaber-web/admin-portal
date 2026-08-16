@@ -133,6 +133,7 @@ interface CandidateRow {
   email: string;
   status: string;
   tenant_slug: string;
+  tenant_name: string;
   tenant_deleted_at: Date | null;
 }
 
@@ -175,7 +176,7 @@ export async function rotateRefreshToken(
   const candidate = await db.query<CandidateRow>(
     `SELECT rt.id, rt.tenant_id, rt.user_id, rt.family_id, rt.expires_at, rt.used_at,
             rt.revoked_at, u.email, u.status, t.slug AS tenant_slug,
-            t.deleted_at AS tenant_deleted_at
+            t.name AS tenant_name, t.deleted_at AS tenant_deleted_at
      FROM refresh_token rt
      JOIN "user" u ON u.id = rt.user_id
      JOIN tenant t ON t.id = rt.tenant_id
@@ -267,6 +268,7 @@ export async function rotateRefreshToken(
       email: row.email,
       tenantId: row.tenant_id,
       tenantSlug: row.tenant_slug,
+      tenantName: row.tenant_name,
       permissions: await loadPermissions(db, row.tenant_id, row.user_id)
     }
   };

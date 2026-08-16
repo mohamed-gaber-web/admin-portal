@@ -94,9 +94,10 @@ describe.skipIf(!hasDb)("US-021 - password authentication", () => {
     db = undefined;
   });
 
-  // AC1: Given an active user, when they sign in with the correct tenant slug,
-  // email and password, then the sign-in succeeds and last_login_at is recorded.
-  it("AC1: a correct slug, email and password signs in and records last_login_at", async () => {
+  // AC1: Given an active user, when they sign in with the correct email and
+  // password, then the sign-in succeeds, the response names the workspace the
+  // address resolved to, and last_login_at is recorded.
+  it("AC1: a correct email and password signs in and records last_login_at", async () => {
     const { tenantId, userId } = await makeSignedUpTenant("initech", "owner@initech.test");
 
     const before = await pool.query<{ last_login_at: Date | null }>(
@@ -105,7 +106,7 @@ describe.skipIf(!hasDb)("US-021 - password authentication", () => {
     );
     expect(before.rows[0].last_login_at, "a user who has never signed in has no timestamp").toBeNull();
 
-    const res = await login({ slug: "initech", email: "owner@initech.test", password: PASSWORD });
+    const res = await login({ email: "owner@initech.test", password: PASSWORD });
     expect(res.status).toBe(200);
 
     // strict() — a field added here later would widen what an unauthenticated
@@ -114,8 +115,13 @@ describe.skipIf(!hasDb)("US-021 - password authentication", () => {
     expect(body.status).toBe("authenticated");
     expect(body.user.id).toBe(userId);
     expect(body.user.email).toBe("owner@initech.test");
+
+    // The workspace, which nothing in the request named. This is the half of
+    // the story that makes email-only sign-in usable: the caller stopped saying
+    // which tenant they meant, so the response has to say which one they got.
     expect(body.tenant.id).toBe(tenantId);
     expect(body.tenant.slug).toBe("initech");
+    expect(body.tenant.name).toBe("initech");
 
     const after = await pool.query<{ last_login_at: Date | null; failed_login_count: number }>(
       `SELECT last_login_at, failed_login_count FROM "user" WHERE id = $1`,
@@ -126,18 +132,19 @@ describe.skipIf(!hasDb)("US-021 - password authentication", () => {
 
     // Email is matched case-insensitively — "Owner@" is the same person, not a
     // second account, which is what the unique index enforces on the way in.
-    const mixedCase = await login({
-      slug: "initech",
-      email: "Owner@Initech.test",
-      password: PASSWORD
-    });
+    const mixedCase = await login({ email: "Owner@Initech.test", password: PASSWORD });
     expect(mixedCase.status).toBe(200);
   });
 
-  // AC2: Given a wrong password, an unknown email, an unknown tenant slug, or a
-  // user who is invited or disabled, when sign-in is attempted, then every case
-  // returns an identical response, and the elapsed time does not distinguish
-  // them.
+  // AC2: Given a wrong password, an unknown email, or a user who is invited,
+  // disabled, or in a soft-deleted tenant, when sign-in is attempted, then every
+  // case returns an identical response, and the elapsed time does not
+  // distinguish them.
+  //
+  // The "unknown slug" case is gone because the field is: sign-in resolves the
+  // tenant from the address, so there is no longer a tenant identifier a caller
+  // could get wrong. What replaced it as the interesting case is a *soft-deleted
+  // tenant*, which is the one remaining way a real address reaches no workspace.
   it("AC2: every failure is identical in body and in timing", async () => {
     await makeSignedUpTenant("umbrella", "ops@umbrella.test");
 
@@ -158,18 +165,17 @@ describe.skipIf(!hasDb)("US-021 - password authentication", () => {
     await softDeleteTenant(pool, deleted.tenantId, { label: "platform-admin" });
 
     const cases = [
-      { name: "wrong password", slug: "umbrella", email: "ops@umbrella.test", password: "wrong-password-entirely" },
-      { name: "unknown email", slug: "umbrella", email: "nobody@umbrella.test", password: PASSWORD },
-      { name: "unknown slug", slug: "no-such-tenant", email: "ops@umbrella.test", password: PASSWORD },
-      { name: "invited user", slug: "hooli", email: "pending@hooli.test", password: PASSWORD },
-      { name: "disabled user", slug: "cyberdyne", email: "gone@cyberdyne.test", password: PASSWORD },
-      { name: "deleted tenant", slug: "vanished", email: "someone@vanished.test", password: PASSWORD }
+      { name: "wrong password", email: "ops@umbrella.test", password: "wrong-password-entirely" },
+      { name: "unknown email", email: "nobody@umbrella.test", password: PASSWORD },
+      { name: "invited user", email: "pending@hooli.test", password: PASSWORD },
+      { name: "disabled user", email: "gone@cyberdyne.test", password: PASSWORD },
+      { name: "deleted tenant", email: "someone@vanished.test", password: PASSWORD }
     ];
 
     // One untimed request first: the very first call pays for JIT, a fresh
     // connection and Argon2's first allocation, and letting that land inside a
     // measured case would make the timings describe warm-up rather than branch.
-    await login({ slug: "warm", email: "warm@up.test", password: PASSWORD });
+    await login({ email: "warm@up.test", password: PASSWORD });
 
     const results: { name: string; status: number; text: string; ms: number }[] = [];
     for (const testCase of cases) {
@@ -206,17 +212,22 @@ describe.skipIf(!hasDb)("US-021 - password authentication", () => {
     // Not a blanket denial: the same account with the right password works, so
     // the assertions above are about credentials and not about everything
     // failing equally.
-    const good = await login({ slug: "umbrella", email: "ops@umbrella.test", password: PASSWORD });
+    const good = await login({ email: "ops@umbrella.test", password: PASSWORD });
     expect(good.status).toBe(200);
   });
 
   // AC3: Given any sign-in attempt, when it completes, then an auth_event
-  // records the outcome, the claimed slug and email, and never the password.
+  // records the outcome, the claimed email, and never the password.
+  //
+  // `claimed_slug` is now null on every sign-in row, because there is no
+  // claimed slug — the column stays because other events (and older rows) still
+  // carry one, and rewriting history to drop it would destroy the record it
+  // exists to keep.
   it("AC3: every attempt is recorded in auth_event, without the password", async () => {
     const { tenantId, userId } = await makeSignedUpTenant("globex", "owner@globex.test");
 
-    await login({ slug: "globex", email: "owner@globex.test", password: PASSWORD });
-    await login({ slug: "globex", email: "owner@globex.test", password: "wrong-password-entirely" });
+    await login({ email: "owner@globex.test", password: PASSWORD });
+    await login({ email: "owner@globex.test", password: "wrong-password-entirely" });
 
     const events = await authEvents("owner@globex.test");
     expect(events.length, "both attempts must be recorded").toBe(2);
@@ -226,7 +237,7 @@ describe.skipIf(!hasDb)("US-021 - password authentication", () => {
     expect(success.outcome).toBe("succeeded");
     expect(success.tenant_id).toBe(tenantId);
     expect(success.user_id).toBe(userId);
-    expect(success.claimed_slug).toBe("globex");
+    expect(success.claimed_slug, "no slug is claimed any more").toBeNull();
     expect(success.claimed_email).toBe("owner@globex.test");
     expect(success.user_agent).toBe("us021-test-agent");
     expect(success.ip, "the client IP must be recorded").toMatch(/127\.0\.0\.1|::1/);
@@ -236,16 +247,18 @@ describe.skipIf(!hasDb)("US-021 - password authentication", () => {
     // The cause is kept here, where only an operator sees it — never returned.
     expect(failure.reason).toBe("wrong password");
 
-    // An attempt against a slug that matches nothing still lands, with no
-    // tenant. This is the case audit_log could not hold at all, and the reason
-    // auth_event exists.
-    await login({ slug: "no-such-tenant", email: "ghost@nowhere.test", password: PASSWORD });
+    // An attempt against an address that matches nothing still lands, with no
+    // tenant and no user. This is the case audit_log could not hold at all —
+    // its tenant_id is NOT NULL — and the reason auth_event exists. It matters
+    // more now than it did: an unresolvable address is the *only* remaining
+    // shape of a sign-in attributable to nobody.
+    await login({ email: "ghost@nowhere.test", password: PASSWORD });
     const orphan = await authEvents("ghost@nowhere.test");
     expect(orphan.length, "a tenantless attempt must still be recorded").toBe(1);
     expect(orphan[0].tenant_id).toBeNull();
     expect(orphan[0].user_id).toBeNull();
-    expect(orphan[0].claimed_slug).toBe("no-such-tenant");
-    expect(orphan[0].reason).toBe("no such tenant");
+    expect(orphan[0].claimed_slug).toBeNull();
+    expect(orphan[0].reason).toBe("no such user");
 
     // The password appears nowhere in any stored row, checked against the whole
     // table rather than the columns we happened to think about.
@@ -258,7 +271,9 @@ describe.skipIf(!hasDb)("US-021 - password authentication", () => {
     // And the log is append-only, so an attacker who reaches the database
     // cannot erase the evidence of their own attempts.
     await expect(
-      pool.query("UPDATE auth_event SET outcome = 'succeeded' WHERE claimed_slug = $1", ["globex"])
+      pool.query("UPDATE auth_event SET outcome = 'succeeded' WHERE claimed_email = $1", [
+        "owner@globex.test"
+      ])
     ).rejects.toThrow(/append-only/i);
   });
 });

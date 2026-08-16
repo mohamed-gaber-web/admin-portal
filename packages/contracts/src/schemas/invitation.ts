@@ -5,8 +5,19 @@ import { z } from "zod";
  *
  * Length over composition rules: forced symbols and digits push people toward
  * "Password1!" while a longer passphrase is both stronger and easier to keep.
+ *
+ * Eight is the floor, not a recommendation — it is short enough that an
+ * offline attacker with the hashes would get through a meaningful share of
+ * real-world choices. What makes it defensible here is that the hashes are
+ * Argon2id and the online path is bounded: US-026 rate-limits per source and
+ * locks an account after repeated failures, so guessing has to happen offline,
+ * which requires the database to have leaked first.
+ *
+ * `packages/db` enforces the same floor server-side and cannot import this
+ * constant (it does not depend on the contracts package), so it declares its
+ * own and a contract test asserts the two agree.
  */
-export const MIN_PASSWORD_LENGTH = 12;
+export const MIN_PASSWORD_LENGTH = 8;
 
 /** Payload accepted when redeeming an invitation. */
 export const acceptInvitationSchema = z.object({

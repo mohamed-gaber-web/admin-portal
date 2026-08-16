@@ -171,25 +171,30 @@ describe.skipIf(!hasDb)("S3 - authentication schema foundation", () => {
     ).rejects.toThrow(/user_status_check/);
   });
 
-  it("email is unique per tenant, case-insensitively", async () => {
+  it("email is unique across the installation, case-insensitively", async () => {
     const acme = await tenantId("acme");
-
-    // Two tenants may hold the same address — which is why login takes a slug.
     const globex = await tenantId("globex");
+
     await expect(
       pool.query(`INSERT INTO "user" (tenant_id, email) VALUES ($1, 'shared@example.test')`, [acme])
     ).resolves.toBeDefined();
+
+    // Not even in a different tenant. An address is the whole of the identity
+    // now — sign-in takes no slug, so a second row holding this address would be
+    // a second answer to a question that must have exactly one.
     await expect(
       pool.query(`INSERT INTO "user" (tenant_id, email) VALUES ($1, 'shared@example.test')`, [
         globex
       ])
-    ).resolves.toBeDefined();
+    ).rejects.toThrow(/user_email_global_unique/);
 
-    // But one tenant may not, and differing case is the same address —
-    // otherwise "Shared@" becomes a second account nobody expects.
+    // And differing case is the same address — otherwise "Shared@" becomes a
+    // second account nobody expects, and one that sign-in could never reach.
     await expect(
-      pool.query(`INSERT INTO "user" (tenant_id, email) VALUES ($1, 'Shared@Example.test')`, [acme])
-    ).rejects.toThrow(/user_tenant_email_lower_index/);
+      pool.query(`INSERT INTO "user" (tenant_id, email) VALUES ($1, 'Shared@Example.test')`, [
+        globex
+      ])
+    ).rejects.toThrow(/user_email_global_unique/);
   });
 
   it("roles carry permissions, and a role from another tenant is rejected", async () => {
@@ -222,7 +227,12 @@ describe.skipIf(!hasDb)("S3 - authentication schema foundation", () => {
       "INSERT INTO role (tenant_id, name) VALUES ($1, 'auditor') RETURNING id",
       [globex]
     );
-    const permission = await pool.query<{ id: string }>("SELECT id FROM permission LIMIT 1");
+    // Not `LIMIT 1` over the whole catalogue: a `platform.*` key would be
+    // refused first by the platform-scope trigger, and this test would pass on
+    // the wrong error while the composite foreign key went unexercised.
+    const permission = await pool.query<{ id: string }>(
+      "SELECT id FROM permission WHERE key NOT LIKE 'platform.%' LIMIT 1"
+    );
     await expect(
       pool.query(
         "INSERT INTO role_permission (tenant_id, role_id, permission_id) VALUES ($1, $2, $3)",

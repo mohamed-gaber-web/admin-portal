@@ -14,7 +14,27 @@ export const TENANT_SCOPED_TABLES = [
   "audit_log",
   "role_permission",
   "user_invitation",
-  "refresh_token"
+  "refresh_token",
+  /**
+   * The mobile bootstrap configuration (US-040).
+   *
+   * Scoped like everything else, even though the endpoint that serves it is
+   * unauthenticated: that endpoint reaches it through `withoutTenantScope` with
+   * a stated reason, which is a visible bypass. A table left unprotected because
+   * "one caller cannot scope anyway" is an unprotected table for every other
+   * caller too.
+   */
+  "tenant_mobile_config",
+  /**
+   * Which modules a tenant is entitled to (US-072).
+   *
+   * Scoped for the same reason `tenant_mobile_config` is: the screens that edit
+   * it are operator screens reaching through `withoutTenantScope`, and that
+   * bypass is visible and logged. The tenant's own read of its entitlements runs
+   * scoped like everything else, and this policy is what makes that read
+   * trustworthy rather than a WHERE clause somebody has to remember.
+   */
+  "tenant_module"
 ] as const;
 
 /**

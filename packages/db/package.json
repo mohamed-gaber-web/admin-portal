@@ -12,7 +12,8 @@
     "migrate:down": "node-pg-migrate down",
     "migrate:create": "node-pg-migrate create",
     "preflight": "node dist/preflight-cli.js",
-    "seed": "node dist/seed-cli.js"
+    "seed": "node dist/seed-cli.js",
+    "platform-admin": "node dist/platform-admin-cli.js"
   },
   "dependencies": {
     "@growpath/observability": "workspace:*",

@@ -32,8 +32,27 @@ export async function startApi(
 ): Promise<RunningApi> {
   const server: ChildProcess = spawn(process.execPath, [join(repoRoot, "apps/api/dist/main.js")], {
     cwd: repoRoot,
-    // Caller overrides win, so a test can point the API at a throwaway database.
-    env: { ...process.env, PORT: String(port), ...env },
+    env: {
+      ...process.env,
+      PORT: String(port),
+      /**
+       * Effectively disables per-source throttling (US-026) by making every
+       * request start its own window.
+       *
+       * These suites drive dozens of auth requests from one address in a few
+       * seconds, which is exactly what the limiter exists to refuse — without
+       * this they throttle themselves and fail for the wrong reason.
+       *
+       * The *window* is shortened rather than the limit raised, on purpose: the
+       * limit must stay below `LOCKOUT_THRESHOLD` or one source can lock an
+       * account on demand, and a test harness is no place to relax that.
+       * US-026's own suite overrides this back to the real window.
+       */
+      AUTH_RATE_WINDOW_MS: "1",
+      // Caller overrides win, so a test can point the API at a throwaway
+      // database — or restore the real rate-limit window.
+      ...env
+    },
     // Piped streams must be drained or the child blocks once its buffer fills.
     stdio: options.captureLogs ? ["ignore", "pipe", "pipe"] : "ignore"
   });

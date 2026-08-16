@@ -15,6 +15,7 @@ import {
 import { listAuditEntries } from "../packages/db/src/audit";
 import { createTenant } from "../packages/db/src/tenancy";
 import { API_ROUTES } from "../packages/contracts/src/routes";
+import { seedPlatformAdmin, type PlatformAdminFixture } from "./tenant-fixtures";
 
 const adminUrl = process.env.DATABASE_URL;
 const hasDb = Boolean(adminUrl);
@@ -30,9 +31,11 @@ const GOOD_PASSWORD = "correct-horse-battery-staple";
 
 describe.skipIf(!hasDb)("US-020 - portal user invitation flow", () => {
   const PORT = 34871;
+  const JWT_SECRET = "us020-suite-signing-key-at-least-32-characters";
   let db: ThrowawayDatabase | undefined;
   let pool: Pool;
   let api: RunningApi | undefined;
+  let operator: PlatformAdminFixture;
 
   beforeAll(async () => {
     db = await createThrowawayDatabase(adminUrl!);
@@ -45,7 +48,12 @@ describe.skipIf(!hasDb)("US-020 - portal user invitation flow", () => {
       log: () => {}
     });
     pool = new Pool({ connectionString: db.url });
-    api = await startApi(PORT, { DATABASE_URL: db.url });
+    api = await startApi(PORT, { DATABASE_URL: db.url, AUTH_JWT_SECRET: JWT_SECRET });
+
+    // Provisioning is platform-only, and this suite drives the real endpoint
+    // on purpose — it is the path that used to produce an admin who could
+    // never sign in.
+    operator = await seedPlatformAdmin(pool, api.baseUrl);
   });
 
   afterAll(async () => {
@@ -63,7 +71,7 @@ describe.skipIf(!hasDb)("US-020 - portal user invitation flow", () => {
     // that matters: before US-020 it produced an admin who could never sign in.
     const res = await fetch(`${api!.baseUrl}${API_ROUTES.tenants}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...operator.headers },
       body: JSON.stringify({ name: "Initech", slug: "initech" })
     });
     expect(res.status).toBe(201);
