@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import argon2 from "argon2";
+import { argon2id, argon2Verify } from "hash-wasm";
 import { recordAuditEntry, type AuditActor } from "./audit";
 import type { Queryable } from "./tenancy";
 
@@ -37,21 +37,61 @@ export const MIN_PASSWORD_LENGTH = 8;
  * lane). Deliberately slow: unlike the invitation token below, a password is
  * human-chosen and therefore guessable, so the cost of each guess is the
  * defence.
+ *
+ * Unchanged from when this used the native `argon2` package, and that matters
+ * more than it looks — see the note on the implementation below. Changing any
+ * value here does not invalidate stored hashes (each one records the parameters
+ * it was made with) but it does mean old and new hashes cost different amounts
+ * to verify.
  */
 export const PASSWORD_HASH_OPTIONS = {
-  type: argon2.argon2id,
   memoryCost: 19456,
   timeCost: 2,
-  parallelism: 1
+  parallelism: 1,
+  /** 128 bits, the argon2 default. Recorded inside the hash string. */
+  saltBytes: 16,
+  /** 256 bits, the argon2 default. */
+  hashLength: 32
 } as const;
 
+/**
+ * Argon2id, in WebAssembly rather than a native binding.
+ *
+ * The algorithm, the parameters and the stored format are identical to what the
+ * native `argon2` package produced — a PHC string, `$argon2id$v=19$m=19456,t=2,p=1$…`,
+ * which is a documented interchange format and not one library's private
+ * encoding. **Hashes written before this change verify unchanged**, because the
+ * hash carries its own parameters and both implementations read the same string.
+ *
+ * The reason for the swap is deployment, not cryptography: `argon2` ships a
+ * prebuilt, unsigned `.node` binary, and Windows Smart App Control refuses to
+ * load unsigned native code. On a machine where that policy is enforced — as it
+ * is on managed devices, by an administrator rather than by the developer — the
+ * entire API failed to boot at `require`, because this module is imported on
+ * every path that touches a user. A password hash is not worth a dependency
+ * that can be switched off by a group policy.
+ *
+ * WebAssembly is slower than the native binding, roughly two to three times, and
+ * for this function that is a feature rather than a cost: the whole point of
+ * these parameters is to make each guess expensive.
+ */
 export async function hashPassword(password: string): Promise<string> {
-  return argon2.hash(password, PASSWORD_HASH_OPTIONS);
+  return argon2id({
+    password,
+    salt: randomBytes(PASSWORD_HASH_OPTIONS.saltBytes),
+    parallelism: PASSWORD_HASH_OPTIONS.parallelism,
+    iterations: PASSWORD_HASH_OPTIONS.timeCost,
+    memorySize: PASSWORD_HASH_OPTIONS.memoryCost,
+    hashLength: PASSWORD_HASH_OPTIONS.hashLength,
+    // The PHC string, so the parameters travel with the hash and a later change
+    // to the constants above cannot make old hashes unverifiable.
+    outputType: "encoded"
+  });
 }
 
 export async function verifyPassword(hash: string, password: string): Promise<boolean> {
   try {
-    return await argon2.verify(hash, password);
+    return await argon2Verify({ password, hash });
   } catch {
     // A malformed stored hash must read as "wrong password", never as a crash
     // that distinguishes this account from any other.
