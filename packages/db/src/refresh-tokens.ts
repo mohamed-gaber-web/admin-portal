@@ -273,3 +273,40 @@ export async function rotateRefreshToken(
     }
   };
 }
+
+/**
+ * Ends a session by revoking the whole family the token belongs to.
+ *
+ * The family, not the one token. A refresh token has been rotated many times by
+ * the point somebody signs out, and revoking only the token presented would
+ * leave every ancestor and the current descendant exchangeable — which is to say
+ * it would not end the session at all.
+ *
+ * Returns the tenant and user when a family was found, so the caller can record
+ * who signed out. Null covers unknown, expired and already-revoked alike, and
+ * the caller must answer identically to all three: a logout endpoint that said
+ * "no such token" would confirm which tokens exist.
+ *
+ * Deliberately does **not** check `expires_at` or `revoked_at` before revoking.
+ * An expired token's family may still hold live siblings, and "revoke what is
+ * already revoked" is a no-op rather than a problem.
+ */
+export interface RevokedSession {
+  tenantId: string;
+  userId: string;
+}
+
+export async function revokeSessionByRefreshToken(
+  db: Queryable,
+  token: string
+): Promise<RevokedSession | null> {
+  const res = await db.query<{ family_id: string; tenant_id: string; user_id: string }>(
+    `SELECT family_id, tenant_id, user_id FROM refresh_token WHERE token_hash = $1`,
+    [hashRefreshToken(token)]
+  );
+  const row = res.rows[0];
+  if (!row) return null;
+
+  await revokeRefreshTokenFamily(db, row.family_id, "signed out");
+  return { tenantId: row.tenant_id, userId: row.user_id };
+}

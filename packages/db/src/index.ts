@@ -97,6 +97,7 @@ export {
   recordConnectionCheck,
   credentialsForSave,
   openClientSecret,
+  resolveProxyTarget,
   tokenUrlFor,
   scopeFor,
   daysUntilExpiry,
@@ -105,6 +106,7 @@ export {
   SECRET_EXPIRY_WARNING_DAYS,
   type ConnectionRecord,
   type ConnectionCredentials,
+  type ProxyTarget,
   type ConnectionState,
   type ConnectionErrorCode,
   type ConnectionCheck,
@@ -188,6 +190,7 @@ export {
   issueRefreshToken,
   rotateRefreshToken,
   revokeRefreshTokenFamily,
+  revokeSessionByRefreshToken,
   generateRefreshToken,
   hashRefreshToken,
   INVALID_SESSION_MESSAGE,
@@ -196,7 +199,8 @@ export {
   type IssueRefreshTokenInput,
   type RefreshResult,
   type RefreshFailure,
-  type RotateRefreshTokenInput
+  type RotateRefreshTokenInput,
+  type RevokedSession
 } from "./refresh-tokens";
 export {
   authenticate,

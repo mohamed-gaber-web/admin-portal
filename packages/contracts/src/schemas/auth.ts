@@ -93,6 +93,19 @@ export const refreshSchema = z.object({
 export type RefreshInput = z.infer<typeof refreshSchema>;
 
 /**
+ * Payload accepted when signing out.
+ *
+ * The same field `refresh` takes, and for the same reason: the refresh token is
+ * what names a session. The access token cannot serve here — it may already have
+ * expired, and it carries no reference to the family it was issued alongside.
+ */
+export const logoutSchema = z.object({
+  refreshToken: z.string().min(1)
+});
+
+export type LogoutInput = z.infer<typeof logoutSchema>;
+
+/**
  * Payload accepted when asking for a reset link.
  *
  * The address alone, for the same reason sign-in takes it alone: it is the

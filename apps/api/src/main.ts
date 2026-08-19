@@ -5,6 +5,7 @@ import { loadRepoEnv } from "@growpath/db";
 import { AppModule } from "./app.module";
 import { apiLogger } from "./observability/logger";
 import { CORRELATION_ID_HEADER } from "@growpath/observability";
+import { D365_COMPANY_HEADER } from "@growpath/contracts";
 
 /**
  * Loads the repo-root `.env`, if there is one and nothing has set DATABASE_URL.
@@ -42,7 +43,10 @@ function allowedOrigins(): string[] {
 }
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  // `rawBody` keeps the unparsed bytes alongside the parsed body. The D365
+  // proxy forwards them verbatim, so a payload this API does not itself
+  // understand survives the hop unchanged.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   // Security headers. contentSecurityPolicy is off because this process serves
   // JSON, not documents — a CSP here protects nothing and the portal sets its
@@ -56,7 +60,22 @@ async function bootstrap(): Promise<void> {
     credentials: true,
     // Echoed so a browser client can send and read the correlation ID, which is
     // what makes a support ticket traceable back to a log line.
-    allowedHeaders: ["content-type", "authorization", CORRELATION_ID_HEADER],
+    allowedHeaders: [
+      "content-type",
+      "authorization",
+      CORRELATION_ID_HEADER,
+      // The D365 proxy forwards these to the ERP, so the browser has to be
+      // allowed to send them. Without the OData set here, the preflight for
+      // every PATCH the web build makes is blocked — and it fails as a CORS
+      // error, which reads like a configuration problem rather than a missing
+      // header.
+      D365_COMPANY_HEADER,
+      "if-match",
+      "if-none-match",
+      "prefer",
+      "odata-version",
+      "odata-maxversion"
+    ],
     exposedHeaders: [CORRELATION_ID_HEADER]
   });
 

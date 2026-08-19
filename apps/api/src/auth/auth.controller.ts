@@ -6,6 +6,7 @@ import {
   acceptInvitationSchema,
   completePasswordResetSchema,
   confirmMfaSchema,
+  logoutSchema,
   refreshSchema,
   requestPasswordResetSchema,
   signInSchema,
@@ -15,6 +16,7 @@ import {
   type Authenticated,
   type CompletePasswordResetInput,
   type ConfirmMfaInput,
+  type LogoutInput,
   type MfaEnabled,
   type MfaEnrolmentStarted,
   type PasswordResetCompleted,
@@ -89,6 +91,24 @@ export class AuthController {
     @Headers("user-agent") userAgent: string
   ): Promise<Authenticated> {
     return this.auth.refresh(dto, ip || null, userAgent || null);
+  }
+
+  /**
+   * Ends a session.
+   *
+   * 204 and no body, always — for a live token, an expired one, one that was
+   * revoked an hour ago and one that was never issued. A status or a body that
+   * varied would turn this into an oracle for which refresh tokens exist, and it
+   * is reachable without a session, so it would be a free one.
+   */
+  @Post(API_ROUTES.logout)
+  @HttpCode(204)
+  async logout(
+    @Body(new ZodValidationPipe(logoutSchema)) dto: LogoutInput,
+    @Ip() ip: string,
+    @Headers("user-agent") userAgent: string
+  ): Promise<void> {
+    await this.auth.logout(dto, ip || null, userAgent || null);
   }
 
   /**

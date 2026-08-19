@@ -454,3 +454,74 @@ export async function recordConnectionCheck(
 
   return after;
 }
+
+/**
+ * Which environment a proxied ERP request is forwarded to (US-046).
+ *
+ * The access token carries a tenant and no environment, and a tenant may hold
+ * several — production and UAT, each with its own credential and its own data.
+ * Guessing between them would mean a device posting a sales order into whichever
+ * one sorted first, so the caller says which, and it says it by naming a
+ * *company* rather than an environment.
+ *
+ * A company is the right handle for two reasons. It is what the app already
+ * works in — every OData query it builds carries a `dataAreaId` — and
+ * `company.environment_id` is covered by a composite foreign key on
+ * `(environment_id, tenant_id)`, so the environment a company resolves to
+ * cannot belong to another tenant even if the row were tampered with.
+ *
+ * Runs inside a tenant-scoped session, so another tenant's company id selects
+ * nothing and comes back `not_found` — a 404, never a 403, which would confirm
+ * the company exists.
+ */
+export type ProxyTarget =
+  | { ok: true; environmentId: string; url: string }
+  /** No such company for this tenant, or its environment has no credential. */
+  | { ok: false; reason: "not_found" }
+  /** No company named and the tenant has more than one connected environment. */
+  | { ok: false; reason: "ambiguous" };
+
+interface ProxyTargetRow {
+  id: string;
+  url: string;
+  connection_state: ConnectionState;
+}
+
+export async function resolveProxyTarget(
+  db: Queryable,
+  companyId: string | null
+): Promise<ProxyTarget> {
+  if (companyId !== null) {
+    if (!isUuid(companyId)) return { ok: false, reason: "not_found" };
+
+    const res = await db.query<ProxyTargetRow>(
+      `SELECT e.id, e.url, e.connection_state
+         FROM company c
+         JOIN d365_environment e ON e.id = c.environment_id
+        WHERE c.id = $1`,
+      [companyId]
+    );
+    const row = res.rows[0];
+    // An environment that has never connected is `not_found` rather than its
+    // own reason code: "you named a company whose ERP we cannot reach" is not
+    // something a device can act on differently from "no such company", and a
+    // distinct code would tell an unauthorised caller that the company is real.
+    if (!row || row.connection_state === "not_configured") {
+      return { ok: false, reason: "not_found" };
+    }
+    return { ok: true, environmentId: row.id, url: row.url };
+  }
+
+  // No company named. Serviceable only while the tenant has exactly one
+  // environment worth forwarding to — which is the common case, and the reason
+  // the header is optional rather than required.
+  const res = await db.query<ProxyTargetRow>(
+    `SELECT id, url, connection_state
+       FROM d365_environment
+      WHERE connection_state <> 'not_configured'`
+  );
+
+  if (res.rows.length === 0) return { ok: false, reason: "not_found" };
+  if (res.rows.length > 1) return { ok: false, reason: "ambiguous" };
+  return { ok: true, environmentId: res.rows[0].id, url: res.rows[0].url };
+}

@@ -18,6 +18,7 @@ import type { Connection, ConnectionTestResult, SaveConnectionInput } from "@gro
 import type { Pool } from "pg";
 import { DATABASE_POOL } from "../database/database.module";
 import { D365TokenClient } from "./d365-token.client";
+import { D365TokenCache } from "../d365/d365-token.cache";
 
 /**
  * D365 connections (US-040, US-042, US-045).
@@ -65,7 +66,8 @@ export type SaveOutcome =
 export class ConnectionService {
   constructor(
     @Inject(DATABASE_POOL) private readonly pool: Pool,
-    private readonly tokens: D365TokenClient
+    private readonly tokens: D365TokenClient,
+    private readonly tokenCache: D365TokenCache
   ) {}
 
   async list(): Promise<Connection[]> {
@@ -149,6 +151,13 @@ export class ConnectionService {
     const saved = await withRequestTenantScope(this.pool, (client) =>
       saveConnection(client, id, record, actor)
     );
+
+    // Whatever was cached was minted from the credential this call just
+    // replaced. Leaving it would keep a rotated-away secret working through the
+    // proxy for the rest of the token's hour — an administrator who rotates a
+    // leaked secret has to be able to believe it took effect.
+    if (saved) this.tokenCache.evict(id);
+
     return saved
       ? { status: "saved", connection: toConnection(saved) }
       : { status: "not_found" };

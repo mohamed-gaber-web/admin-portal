@@ -20,7 +20,9 @@ import {
   loadAuthenticatedUser,
   MfaAlreadyEnabledError,
   mfaIsEnabled,
+  recordAuthEvent,
   requestPasswordReset,
+  revokeSessionByRefreshToken,
   rotateRefreshToken,
   verifyMfa,
   withoutTenantScope,
@@ -34,6 +36,7 @@ import type {
   Authenticated,
   CompletePasswordResetInput,
   ConfirmMfaInput,
+  LogoutInput,
   MfaEnabled,
   MfaEnrolmentStarted,
   PasswordResetCompleted,
@@ -281,6 +284,51 @@ export class AuthService {
     }
 
     return this.authenticated(result.user, result.refresh);
+  }
+
+  /**
+   * Ends a session, server-side.
+   *
+   * Until this existed, signing out cleared the tokens from one client and left
+   * the refresh token exchangeable for its full fourteen days. On a shared
+   * warehouse device that is not a sign-out; it is a sign-out-looking button.
+   *
+   * Answers nothing, and answers it identically whether the token was live,
+   * expired, already revoked or never real. There is no branch a caller can
+   * observe, because any difference would confirm which tokens exist — the same
+   * reason `requestPasswordReset` returns one fixed 202.
+   *
+   * Unscoped: whoever is signing out may hold an access token that expired
+   * hours ago, so there is no tenant context, and the refresh token resolves the
+   * tenant the same way it does at `/auth/refresh`.
+   */
+  async logout(
+    input: LogoutInput,
+    ip: string | null,
+    userAgent: string | null
+  ): Promise<void> {
+    await withoutTenantScope(
+      this.pool,
+      {
+        reason:
+          "Signing out happens with no usable access token and so no tenant context; the refresh token resolves the tenant (US-046)."
+      },
+      async (client) => {
+        const revoked = await revokeSessionByRefreshToken(client, input.refreshToken);
+        await recordAuthEvent(client, {
+          tenantId: revoked?.tenantId ?? null,
+          userId: revoked?.userId ?? null,
+          event: "session.signed_out",
+          // "succeeded" for an unrecognised token too. From the caller's side
+          // the request did what it asked — the session is not usable — and the
+          // distinction lives in `reason`, which is not returned.
+          outcome: "succeeded",
+          reason: revoked ? null : "no matching session",
+          ip,
+          userAgent
+        });
+      }
+    );
   }
 
   /**

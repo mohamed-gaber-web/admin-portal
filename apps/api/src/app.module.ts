@@ -8,6 +8,9 @@ import { CompanyService } from "./company/company.service";
 import { ConnectionController } from "./connection/connection.controller";
 import { ConnectionService } from "./connection/connection.service";
 import { D365TokenClient } from "./connection/d365-token.client";
+import { D365ProxyController } from "./d365/d365-proxy.controller";
+import { D365ProxyService } from "./d365/d365-proxy.service";
+import { D365TokenCache } from "./d365/d365-token.cache";
 import {
   MobileBootstrapController,
   MobileConfigController
@@ -39,6 +42,7 @@ import { TenantService } from "./tenant/tenant.service";
     AuthController,
     CompanyController,
     ConnectionController,
+    D365ProxyController,
     EntitlementController,
     HealthController,
     MobileBootstrapController,
@@ -54,6 +58,8 @@ import { TenantService } from "./tenant/tenant.service";
     CompanyService,
     ConnectionService,
     D365TokenClient,
+    D365ProxyService,
+    D365TokenCache,
     EntitlementService,
     HealthService,
     MobileService,

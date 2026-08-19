@@ -102,6 +102,15 @@ export const DECLARED_ROUTES: DeclaredRoute[] = [
   },
   {
     method: "POST",
+    path: "/auth/logout",
+    visibility: "public",
+    note: "Ends a session server-side (US-046). Necessarily unauthenticated, like refresh: whoever is signing out may hold an access token that expired hours ago, which is exactly when they most want the session gone. Revokes the whole family, not the token presented — a refresh token has rotated many times by then, and revoking one link would leave the session usable. Answers an identical 204 for a live token, an expired one, an already-revoked one and one that was never issued.",
+    audits: [],
+    noAuditReason:
+      "Recorded in auth_event as session.signed_out, not audit_log, for the same reason /auth/refresh is: a logout presenting an unrecognised token has no tenant, and audit_log.tenant_id is NOT NULL."
+  },
+  {
+    method: "POST",
     path: "/auth/forgot-password",
     visibility: "public",
     note: "Asks for a reset link (US-024). Necessarily unauthenticated. Answers an identical 202 whether or not the account exists — this is the endpoint where account enumeration usually leaks, so the status code is fixed as well as the body.",
@@ -301,6 +310,98 @@ export const DECLARED_ROUTES: DeclaredRoute[] = [
     path: "/mobile/config",
     visibility: "public",
     note: "What a device fetches at launch, replacing its bundled environment.ts (US-040). Necessarily unauthenticated — this is the endpoint that tells the app where the API is, so requiring a token would require the app to already know what it is asking for. Throttled per source like every other unauthenticated route. It carries no credential of any kind: the D365 client secret is on a table this endpoint's query does not name, and an unknown, archived or suspended slug all answer with one identical 404."
+  },
+
+  /*
+   * The ERP pass-through (US-046).
+   *
+   * Ten entries for two paths, because the route guard scans one decorator at
+   * a time and the controller declares five methods on each family. Verbose,
+   * and deliberately so: an @All() route would be invisible to that guard.
+   */
+  {
+    method: "GET",
+    path: "/d365/data/*",
+    visibility: "tenant-scoped",
+    note: "The ERP pass-through (US-046). Tenant-scoped through the token like every other route here; which of the tenant's environments it reaches comes from the company named in x-d365-company, resolved under RLS, so another tenant's company id answers 404. Two path families rather than one wildcard so the allowlist — data/ and api/services/ — is enforced by the router before any handler runs. It never answers 401: only AccessTokenGuard may, and an upstream 401 passed through would make the mobile app sign a user out because our ERP service principal expired, not their session."
+  },
+  {
+    method: "POST",
+    path: "/d365/data/*",
+    visibility: "tenant-scoped",
+    note: "The ERP pass-through (US-046). Tenant-scoped through the token like every other route here; which of the tenant's environments it reaches comes from the company named in x-d365-company, resolved under RLS, so another tenant's company id answers 404. Two path families rather than one wildcard so the allowlist — data/ and api/services/ — is enforced by the router before any handler runs. It never answers 401: only AccessTokenGuard may, and an upstream 401 passed through would make the mobile app sign a user out because our ERP service principal expired, not their session.",
+    audits: [],
+    noAuditReason:
+      "A proxied ERP call is not a configuration change. A van sales device makes hundreds an hour, so an entry each would make GET /activity unreadable and turn the append-only audit_log into the busiest write path in the system — the feed exists to answer \"who changed this connection\", which connection.updated already does, and D365 is the system of record for the operations themselves. What is recorded instead is the structured request log line, carrying the correlation id, tenant, user, environment, method, path and status."
+  },
+  {
+    method: "PUT",
+    path: "/d365/data/*",
+    visibility: "tenant-scoped",
+    note: "The ERP pass-through (US-046). Tenant-scoped through the token like every other route here; which of the tenant's environments it reaches comes from the company named in x-d365-company, resolved under RLS, so another tenant's company id answers 404. Two path families rather than one wildcard so the allowlist — data/ and api/services/ — is enforced by the router before any handler runs. It never answers 401: only AccessTokenGuard may, and an upstream 401 passed through would make the mobile app sign a user out because our ERP service principal expired, not their session.",
+    audits: [],
+    noAuditReason:
+      "A proxied ERP call is not a configuration change. A van sales device makes hundreds an hour, so an entry each would make GET /activity unreadable and turn the append-only audit_log into the busiest write path in the system — the feed exists to answer \"who changed this connection\", which connection.updated already does, and D365 is the system of record for the operations themselves. What is recorded instead is the structured request log line, carrying the correlation id, tenant, user, environment, method, path and status."
+  },
+  {
+    method: "PATCH",
+    path: "/d365/data/*",
+    visibility: "tenant-scoped",
+    note: "The ERP pass-through (US-046). Tenant-scoped through the token like every other route here; which of the tenant's environments it reaches comes from the company named in x-d365-company, resolved under RLS, so another tenant's company id answers 404. Two path families rather than one wildcard so the allowlist — data/ and api/services/ — is enforced by the router before any handler runs. It never answers 401: only AccessTokenGuard may, and an upstream 401 passed through would make the mobile app sign a user out because our ERP service principal expired, not their session.",
+    audits: [],
+    noAuditReason:
+      "A proxied ERP call is not a configuration change. A van sales device makes hundreds an hour, so an entry each would make GET /activity unreadable and turn the append-only audit_log into the busiest write path in the system — the feed exists to answer \"who changed this connection\", which connection.updated already does, and D365 is the system of record for the operations themselves. What is recorded instead is the structured request log line, carrying the correlation id, tenant, user, environment, method, path and status."
+  },
+  {
+    method: "DELETE",
+    path: "/d365/data/*",
+    visibility: "tenant-scoped",
+    note: "The ERP pass-through (US-046). Tenant-scoped through the token like every other route here; which of the tenant's environments it reaches comes from the company named in x-d365-company, resolved under RLS, so another tenant's company id answers 404. Two path families rather than one wildcard so the allowlist — data/ and api/services/ — is enforced by the router before any handler runs. It never answers 401: only AccessTokenGuard may, and an upstream 401 passed through would make the mobile app sign a user out because our ERP service principal expired, not their session.",
+    audits: [],
+    noAuditReason:
+      "A proxied ERP call is not a configuration change. A van sales device makes hundreds an hour, so an entry each would make GET /activity unreadable and turn the append-only audit_log into the busiest write path in the system — the feed exists to answer \"who changed this connection\", which connection.updated already does, and D365 is the system of record for the operations themselves. What is recorded instead is the structured request log line, carrying the correlation id, tenant, user, environment, method, path and status."
+  },
+  {
+    method: "GET",
+    path: "/d365/api/services/*",
+    visibility: "tenant-scoped",
+    note: "The ERP pass-through (US-046). Tenant-scoped through the token like every other route here; which of the tenant's environments it reaches comes from the company named in x-d365-company, resolved under RLS, so another tenant's company id answers 404. Two path families rather than one wildcard so the allowlist — data/ and api/services/ — is enforced by the router before any handler runs. It never answers 401: only AccessTokenGuard may, and an upstream 401 passed through would make the mobile app sign a user out because our ERP service principal expired, not their session."
+  },
+  {
+    method: "POST",
+    path: "/d365/api/services/*",
+    visibility: "tenant-scoped",
+    note: "The ERP pass-through (US-046). Tenant-scoped through the token like every other route here; which of the tenant's environments it reaches comes from the company named in x-d365-company, resolved under RLS, so another tenant's company id answers 404. Two path families rather than one wildcard so the allowlist — data/ and api/services/ — is enforced by the router before any handler runs. It never answers 401: only AccessTokenGuard may, and an upstream 401 passed through would make the mobile app sign a user out because our ERP service principal expired, not their session.",
+    audits: [],
+    noAuditReason:
+      "A proxied ERP call is not a configuration change. A van sales device makes hundreds an hour, so an entry each would make GET /activity unreadable and turn the append-only audit_log into the busiest write path in the system — the feed exists to answer \"who changed this connection\", which connection.updated already does, and D365 is the system of record for the operations themselves. What is recorded instead is the structured request log line, carrying the correlation id, tenant, user, environment, method, path and status."
+  },
+  {
+    method: "PUT",
+    path: "/d365/api/services/*",
+    visibility: "tenant-scoped",
+    note: "The ERP pass-through (US-046). Tenant-scoped through the token like every other route here; which of the tenant's environments it reaches comes from the company named in x-d365-company, resolved under RLS, so another tenant's company id answers 404. Two path families rather than one wildcard so the allowlist — data/ and api/services/ — is enforced by the router before any handler runs. It never answers 401: only AccessTokenGuard may, and an upstream 401 passed through would make the mobile app sign a user out because our ERP service principal expired, not their session.",
+    audits: [],
+    noAuditReason:
+      "A proxied ERP call is not a configuration change. A van sales device makes hundreds an hour, so an entry each would make GET /activity unreadable and turn the append-only audit_log into the busiest write path in the system — the feed exists to answer \"who changed this connection\", which connection.updated already does, and D365 is the system of record for the operations themselves. What is recorded instead is the structured request log line, carrying the correlation id, tenant, user, environment, method, path and status."
+  },
+  {
+    method: "PATCH",
+    path: "/d365/api/services/*",
+    visibility: "tenant-scoped",
+    note: "The ERP pass-through (US-046). Tenant-scoped through the token like every other route here; which of the tenant's environments it reaches comes from the company named in x-d365-company, resolved under RLS, so another tenant's company id answers 404. Two path families rather than one wildcard so the allowlist — data/ and api/services/ — is enforced by the router before any handler runs. It never answers 401: only AccessTokenGuard may, and an upstream 401 passed through would make the mobile app sign a user out because our ERP service principal expired, not their session.",
+    audits: [],
+    noAuditReason:
+      "A proxied ERP call is not a configuration change. A van sales device makes hundreds an hour, so an entry each would make GET /activity unreadable and turn the append-only audit_log into the busiest write path in the system — the feed exists to answer \"who changed this connection\", which connection.updated already does, and D365 is the system of record for the operations themselves. What is recorded instead is the structured request log line, carrying the correlation id, tenant, user, environment, method, path and status."
+  },
+  {
+    method: "DELETE",
+    path: "/d365/api/services/*",
+    visibility: "tenant-scoped",
+    note: "The ERP pass-through (US-046). Tenant-scoped through the token like every other route here; which of the tenant's environments it reaches comes from the company named in x-d365-company, resolved under RLS, so another tenant's company id answers 404. Two path families rather than one wildcard so the allowlist — data/ and api/services/ — is enforced by the router before any handler runs. It never answers 401: only AccessTokenGuard may, and an upstream 401 passed through would make the mobile app sign a user out because our ERP service principal expired, not their session.",
+    audits: [],
+    noAuditReason:
+      "A proxied ERP call is not a configuration change. A van sales device makes hundreds an hour, so an entry each would make GET /activity unreadable and turn the append-only audit_log into the busiest write path in the system — the feed exists to answer \"who changed this connection\", which connection.updated already does, and D365 is the system of record for the operations themselves. What is recorded instead is the structured request log line, carrying the correlation id, tenant, user, environment, method, path and status."
   },
 
   /*

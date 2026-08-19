@@ -1,6 +1,10 @@
 import { Injectable } from "@nestjs/common";
 import { fetchWithCorrelation } from "@growpath/observability";
-import type { ConnectionCheck, ConnectionCredentials } from "@growpath/db";
+import type {
+  ConnectionCheck,
+  ConnectionCredentials,
+  ConnectionErrorCode
+} from "@growpath/db";
 import { apiLogger } from "../observability/logger";
 
 /**
@@ -75,6 +79,23 @@ interface TokenErrorBody {
   error_description?: string;
 }
 
+/** The shape Entra answers a successful client-credentials request with. */
+interface TokenSuccessBody {
+  access_token?: string;
+  expires_in?: number;
+}
+
+/**
+ * A completed exchange, token included.
+ *
+ * Distinct from `ConnectionCheck`, which deliberately carries no token because
+ * its caller is a verification that has no use for one. Everything that wants
+ * the credential itself goes through here.
+ */
+export type TokenExchange =
+  | { ok: true; accessToken: string; expiresIn: number }
+  | { ok: false; error: ConnectionErrorCode };
+
 @Injectable()
 export class D365TokenClient {
   /**
@@ -85,11 +106,29 @@ export class D365TokenClient {
    * exception is a failure whose record is rolled back with the transaction that
    * was writing it.
    *
-   * A successful token is discarded. Nothing here needs it — this is a check,
-   * and holding the token would mean deciding where to cache a credential, which
-   * is US-046's problem and not this function's.
+   * The token this obtains is discarded here, and that is still the right
+   * default — this is a check, and a caller asking "does this credential work"
+   * has no business being handed a credential as a side effect. `exchange()` is
+   * for the callers that do need one.
    */
   async check(credentials: ConnectionCredentials): Promise<ConnectionCheck> {
+    const result = await this.exchange(credentials);
+    return result.ok ? { ok: true } : { ok: false, error: result.error };
+  }
+
+  /**
+   * The same exchange, keeping the token (US-046).
+   *
+   * Split out rather than copied so there is one place a client secret is put on
+   * the wire. Two implementations would mean two places to get the timeout, the
+   * authority override and the error classification right, and the second one
+   * would drift.
+   *
+   * Nothing here logs the request or the response. A token response *is* a
+   * credential, and one convenience log line would write it to disk under a
+   * correlation ID that makes it easy to find.
+   */
+  async exchange(credentials: ConnectionCredentials): Promise<TokenExchange> {
     const body = new URLSearchParams({
       grant_type: "client_credentials",
       client_id: credentials.clientId,
@@ -119,11 +158,25 @@ export class D365TokenClient {
       return { ok: false, error: "unreachable" };
     }
 
-    if (response.ok) {
-      return { ok: true };
+    if (!response.ok) {
+      return { ok: false, error: await classify(response) };
     }
 
-    return { ok: false, error: await classify(response) };
+    let parsed: TokenSuccessBody;
+    try {
+      parsed = (await response.json()) as TokenSuccessBody;
+    } catch {
+      // A 200 that is not JSON did not come from a token endpoint.
+      return { ok: false, error: "unexpected" };
+    }
+
+    if (!parsed.access_token || typeof parsed.expires_in !== "number") {
+      // A 200 carrying no token is not a success, whatever the status says.
+      // Treating it as one would cache an empty string and present it to D365.
+      return { ok: false, error: "unexpected" };
+    }
+
+    return { ok: true, accessToken: parsed.access_token, expiresIn: parsed.expires_in };
   }
 }
 

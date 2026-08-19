@@ -21,6 +21,15 @@ export const API_ROUTES = {
    * the access token it replaces has expired, which is the whole reason to call.
    */
   refresh: "/auth/refresh",
+  /**
+   * Ends a session, server-side.
+   *
+   * Unauthenticated by necessity, like `refresh`: somebody signing out may well
+   * be holding an access token that expired hours ago, and that is exactly when
+   * they most want the session gone. The refresh token in the body is what
+   * identifies the session, and it is the only thing that could.
+   */
+  logout: "/auth/logout",
   /** Asks for a reset link. Answers identically whether or not the account exists. */
   requestPasswordReset: "/auth/forgot-password",
   /** Redeems a reset link and sets a new password. */
@@ -143,6 +152,37 @@ export const API_ROUTES = {
   mobileConfig: "/mobile/config",
 
   /**
+   * Everything a device asks of the ERP, forwarded with a credential it never
+   * sees (US-046).
+   *
+   * The counterpart to `mobileConfig`. That route tells a freshly installed app
+   * where the API is; these are what the app then talks to instead of D365.
+   * US-040 took the `client_credentials` secret out of every installed build and
+   * sealed it on the server, which left the device with no way to reach the ERP
+   * at all — this is the way.
+   *
+   * **Two families rather than one `/d365/*`, and that is the security control.**
+   * `data/` is the OData surface and `api/services/` the custom service
+   * endpoints; between them they are the whole of what the app calls. Splitting
+   * them puts the allowlist in the router, where Express enforces it before any
+   * of our code runs — one wildcard route would put it in a string comparison
+   * inside a handler, where it is one early `return` away from being an open
+   * forwarder into a customer's ERP for anyone holding any tenant's token.
+   *
+   * The paths below the prefix are D365's own, unchanged, because the app names
+   * ninety-five of them across twenty services and a migration that also
+   * rewrote every query would be two migrations. It also means "what the device
+   * asked for" and "what D365 was asked" are the same string in a log.
+   *
+   * Tenant-scoped through the token like every other route here. Which of the
+   * tenant's environments a request reaches is decided by the company named in
+   * `D365_COMPANY_HEADER`, resolved under row level security, so another
+   * tenant's company id selects nothing and answers 404.
+   */
+  d365Data: "/d365/data/*",
+  d365Services: "/d365/api/services/*",
+
+  /**
    * The platform tier — every tenant and every user, across the installation.
    *
    * Prefixed rather than folded into the routes above, and the prefix is the
@@ -196,3 +236,19 @@ export const API_ROUTES = {
    */
   platformPermissions: "/platform/permissions"
 } as const;
+
+/**
+ * Which company — and therefore which environment — a proxied ERP request means.
+ *
+ * A header rather than a query parameter, because the path and query of a
+ * proxied request belong to D365 and are forwarded verbatim; anything this API
+ * adds there would travel to the ERP as part of an OData query and change what
+ * it means. A header is ours, and is stripped before forwarding.
+ *
+ * Optional. A tenant with one configured environment needs no disambiguation,
+ * and requiring the header would mean every screen in the app had to learn about
+ * environments before it could ask for a sales order. With more than one, the
+ * request is refused rather than guessed at: posting an order into whichever
+ * environment sorted first is not a failure anybody would notice quickly.
+ */
+export const D365_COMPANY_HEADER = "x-d365-company";
