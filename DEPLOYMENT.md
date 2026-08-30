@@ -107,7 +107,7 @@ deep link 404s and every API call fails.
 domain:
 
 ```json
-{ "source": "/api/:path*", "destination": "https://REPLACE-ME.up.railway.app/:path*" }
+{ "source": "/api/:path*", "destination": "https://admin-portal-production-db9b.up.railway.app/:path*" }
 ```
 
 ### Why the `/api` prefix exists
