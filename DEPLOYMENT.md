@@ -29,7 +29,7 @@ Add a service from this repo. `railway.json` in the repo root already sets the
 build, start and healthcheck; you only need the variables.
 
 ```
-Build   pnpm install --frozen-lockfile && pnpm --filter @growpath/api build
+Build   pnpm install --frozen-lockfile && pnpm --filter @growpath/api... build
 Start   pnpm --filter @growpath/db migrate:up && node apps/api/dist/main.js
 Health  /health
 ```
@@ -70,7 +70,7 @@ rather than one, so rotating the D365 key does not touch anybody's MFA.
 Import the repo. `vercel.json` in the root sets everything except the API URL.
 
 ```
-Build     pnpm --filter @growpath/portal build
+Build     pnpm --filter @growpath/portal... build
 Install   pnpm install --frozen-lockfile
 Output    apps/portal/dist/browser
 Framework Other
@@ -145,6 +145,14 @@ tenants and their users.
   workspace and the API depends on `@growpath/db`, `@growpath/contracts` and
   `@growpath/observability` by `workspace:*`. Setting a Root Directory of
   `apps/api` breaks the install.
+- **The `...` in both build commands is load-bearing.** Every workspace package
+  resolves through `"types": "./dist/index.d.ts"`, which does not exist until
+  that package is built. `--filter @growpath/api build` builds only the API and
+  fails on a fresh checkout with `TS2307: Cannot find module '@growpath/db'`,
+  plus a cascade of `implicitly has an 'any'` where TypeScript gave up after the
+  import failed. The `...` suffix includes a package's dependencies, so pnpm
+  builds them first in topological order. It only breaks in CI — a local `dist/`
+  survives from the previous build.
 - **`/api/health` is the rewrite test.** If `https://<railway>/health` works but
   `https://<vercel>/api/health` does not, the destination in `vercel.json` is
   wrong — not the API.
