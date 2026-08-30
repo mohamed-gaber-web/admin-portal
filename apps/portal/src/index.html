@@ -5,8 +5,55 @@
     <title>Grow Path Admin Portal</title>
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Administration portal for Grow Path tenants, users and activity."
+    />
+    <!--
+      Was `data:,` — a deliberate blank, to stop the browser requesting a
+      /favicon.ico that did not exist. There is a real mark now.
+    -->
+    <link rel="icon" type="image/svg+xml" href="assets/images/grow-path-logo.svg" />
   </head>
   <body>
+    <!--
+      Applies the stored theme and language before the first paint.
+
+      Angular sets both, but only after its bundle has parsed and bootstrapped —
+      long enough on a cold load for a dark-mode user to get a white flash, and
+      for an Arabic user to watch the entire layout jump from left-aligned to
+      right-aligned. Direction matters more than colour here: a theme flash is
+      ugly, a direction flip relays out every element on the page.
+
+      This is the one piece of logic that has to run ahead of the framework,
+      which is why it is inline rather than in a module. It duplicates the
+      defaults in ThemeService and I18nService; keep the three in step.
+    -->
+    <script>
+      (function () {
+        var root = document.documentElement;
+        try {
+          var theme = localStorage.getItem("growpath.theme");
+          var dark =
+            theme === "dark" ||
+            ((!theme || theme === "system") &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) root.classList.add("dark");
+          root.style.colorScheme = dark ? "dark" : "light";
+
+          var locale = localStorage.getItem("growpath.locale");
+          if (locale !== "ar" && locale !== "en") locale = "en";
+          root.setAttribute("lang", locale);
+          root.setAttribute("dir", locale === "ar" ? "rtl" : "ltr");
+        } catch (e) {
+          /* Private browsing: fall through to the light, English defaults. */
+          root.setAttribute("lang", "en");
+          root.setAttribute("dir", "ltr");
+        }
+      })();
+    </script>
+
     <app-root></app-root>
   </body>
 </html>

@@ -17,6 +17,9 @@ export default defineConfig({
   test: {
     include: ["tests/**/*.test.ts"],
     setupFiles: ["./tests/setup-env.ts"],
+    // Builds the API once, before any file runs. Per-call builds raced when
+    // several test files started servers in parallel.
+    globalSetup: ["./tests/global-setup.ts"],
     environment: "node",
     globals: true,
     testTimeout: 120000,

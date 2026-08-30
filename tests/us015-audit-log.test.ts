@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { repoRoot } from "./helpers";
 import { createThrowawayDatabase, type ThrowawayDatabase } from "./pg-helpers";
 import { startApi, type RunningApi } from "./api-server";
+import { seedPlatformAdmin, type PlatformAdminFixture } from "./tenant-fixtures";
 import { recordAuditEntry, listAuditEntries, REDACTED } from "../packages/db/src/audit";
 import { createTenant, softDeleteTenant } from "../packages/db/src/tenancy";
 import {
@@ -30,9 +31,11 @@ if (!hasDb) {
 
 describe.skipIf(!hasDb)("US-015 - append-only audit log", () => {
   const PORT = 34813;
+  const JWT_SECRET = "us015-suite-signing-key-at-least-32-characters";
   let db: ThrowawayDatabase | undefined;
   let pool: Pool;
   let api: RunningApi | undefined;
+  let operator: PlatformAdminFixture;
 
   beforeAll(async () => {
     db = await createThrowawayDatabase(adminUrl!);
@@ -45,7 +48,8 @@ describe.skipIf(!hasDb)("US-015 - append-only audit log", () => {
       log: () => {}
     });
     pool = new Pool({ connectionString: db.url });
-    api = await startApi(PORT, { DATABASE_URL: db.url });
+    api = await startApi(PORT, { DATABASE_URL: db.url, AUTH_JWT_SECRET: JWT_SECRET });
+    operator = await seedPlatformAdmin(pool, api.baseUrl);
   });
 
   afterAll(async () => {
@@ -62,7 +66,7 @@ describe.skipIf(!hasDb)("US-015 - append-only audit log", () => {
     // Driven over real HTTP so the IP is genuinely observed, not stubbed.
     const res = await fetch(`${api!.baseUrl}/tenants`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...operator.headers },
       body: JSON.stringify({ name: "Initech", slug: "initech" })
     });
     expect(res.status).toBe(201);
@@ -74,8 +78,13 @@ describe.skipIf(!hasDb)("US-015 - append-only audit log", () => {
     const roleAssigned = entries.find((e) => e.action === "role.assigned");
     expect(roleAssigned, "expected a role.assigned audit entry").toBeDefined();
 
-    expect(roleAssigned!.actorLabel).toBe("platform-admin"); // actor
-    expect(roleAssigned!.actorUserId).toBe(created.adminUser.id); // actor identity
+    // The operator who provisioned it, from their verified token claims. This
+    // used to be the fixed label "platform-admin" with the *new* tenant's admin
+    // standing in as the actor id — truthful while the route was
+    // unauthenticated and there was nobody to name, and misleading now that
+    // there is: it credited the change to the person it was made for.
+    expect(roleAssigned!.actorLabel).toBe(operator.email); // actor
+    expect(roleAssigned!.actorUserId).toBe(operator.userId); // actor identity
     expect(roleAssigned!.entityType).toBe("user_role"); // target
     expect(roleAssigned!.entityId).toBe(created.adminUser.id); // target id
     expect(roleAssigned!.afterValues).toMatchObject({ role: "admin" }); // after

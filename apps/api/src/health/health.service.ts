@@ -1,8 +1,8 @@
-import { Inject, Injectable, type OnApplicationShutdown } from "@nestjs/common";
-import Redis from "ioredis";
+import { Inject, Injectable } from "@nestjs/common";
 import type { Pool } from "pg";
 import type { DependencyState, Readiness } from "@growpath/contracts";
 import { DATABASE_POOL } from "../database/database.module";
+import { RedisConnection } from "../redis/redis.module";
 import { apiLogger } from "../observability/logger";
 
 /**
@@ -35,98 +35,96 @@ function withTimeout<T>(operation: Promise<T>, ms: number, label: string): Promi
 }
 
 @Injectable()
-export class HealthService implements OnApplicationShutdown {
-  /** Null when REDIS_URL is unset. See `probeRedis` for what that then means. */
-  private readonly redis: Redis | null;
-
+export class HealthService {
   /**
-   * The most recent connection-level Redis error.
+   * Last reported state per dependency, so failures are logged on transition
+   * rather than on every probe.
    *
-   * Kept because the two are not the same error. A failed `ping()` rejects with
-   * ioredis's own "Reached the max retries per request limit", which is true and
-   * useless — it does not say whether the cause was a refused connection, a DNS
-   * failure, a bad password or a TLS mismatch. That detail only ever arrives on
-   * the client's 'error' event, so it is captured here and logged alongside.
+   * A readiness probe runs every few seconds forever. Logging each failure
+   * would write thousands of identical error lines a day for one outage, which
+   * buries the line that actually matters — the first one. Transitions give an
+   * operator "went down at T, came back at T+n" and nothing in between.
    */
-  private lastRedisError: string | null = null;
+  private readonly lastState = new Map<string, DependencyState>();
 
-  constructor(@Inject(DATABASE_POOL) private readonly pool: Pool) {
-    const url = process.env.REDIS_URL?.trim();
-    this.redis = url ? this.createRedisClient(url) : null;
-  }
-
-  private createRedisClient(url: string): Redis {
-    const client = new Redis(url, {
-      // Nothing else uses Redis yet, so do not open a socket at boot just to
-      // hold it idle; the first probe connects.
-      lazyConnect: true,
-      connectTimeout: PROBE_TIMEOUT_MS,
-      // Fail the command instead of retrying into our own timeout budget.
-      maxRetriesPerRequest: 1
-    });
-
-    // Two jobs. First, an EventEmitter 'error' with no listener throws, so an
-    // unreachable Redis would take down the very process the probe exists to
-    // report on. Second, this is the only place the real cause is visible —
-    // keep it for the log rather than discarding it.
-    client.on("error", (err: Error) => {
-      this.lastRedisError = describe(err);
-    });
-
-    // The default retry strategy is deliberately kept: it reconnects with
-    // backoff, so once Redis comes back the probe recovers on its own instead
-    // of reporting down until someone restarts the instance.
-    return client;
-  }
+  constructor(
+    @Inject(DATABASE_POOL) private readonly pool: Pool,
+    private readonly redis: RedisConnection
+  ) {}
 
   /** True only in production, where an unset REDIS_URL is a misconfiguration. */
   private get redisRequired(): boolean {
     return process.env.NODE_ENV === "production";
   }
 
+  /**
+   * Records a probe outcome, logging only when it differs from last time.
+   *
+   * Returns the state so call sites read as `return this.report(...)`.
+   */
+  private report(
+    dependency: string,
+    state: DependencyState,
+    message: string,
+    fields: Record<string, unknown> = {}
+  ): DependencyState {
+    const previous = this.lastState.get(dependency);
+    this.lastState.set(dependency, state);
+
+    if (previous === state) {
+      // Steady state. Still emitted, so a debug-level run shows every probe.
+      apiLogger.debug(message, { ...fields, dependency, state, unchanged: true });
+      return state;
+    }
+
+    const level = state === "down" ? "error" : previous === undefined ? "debug" : "info";
+    apiLogger[level](message, { ...fields, dependency, state, previousState: previous ?? null });
+    return state;
+  }
+
   private async probeDatabase(): Promise<DependencyState> {
     try {
       await withTimeout(this.pool.query("SELECT 1"), PROBE_TIMEOUT_MS, "database");
-      return "up";
+      return this.report("database", "up", "health.database.reachable");
     } catch (err) {
       // The detail goes here and only here. AC2 keeps it out of the response;
       // dropping it entirely would leave an operator with a 503 and no cause,
       // so it is logged with the request's correlation ID (US-007).
-      apiLogger.error("health.database.unreachable", { error: describe(err) });
-      return "down";
+      return this.report("database", "down", "health.database.unreachable", {
+        error: describe(err)
+      });
     }
   }
 
   private async probeRedis(): Promise<DependencyState> {
-    if (!this.redis) {
+    const client = this.redis.client;
+
+    if (!client) {
       if (this.redisRequired) {
-        apiLogger.error("health.redis.unconfigured", {
+        return this.report("redis", "down", "health.redis.unconfigured", {
           error: "REDIS_URL is not set, and it is required in production"
         });
-        return "down";
       }
       // Outside production this is the documented local setup: US-006 left
       // Redis out of the local stack, so a developer has none to point at.
-      return "not_configured";
+      return this.report("redis", "not_configured", "health.redis.not_configured");
     }
 
     try {
-      const reply = await withTimeout(this.redis.ping(), PROBE_TIMEOUT_MS, "redis");
+      const reply = await withTimeout(client.ping(), PROBE_TIMEOUT_MS, "redis");
       if (reply !== "PONG") {
         // Something answered on the port without speaking Redis.
-        apiLogger.error("health.redis.unexpected_reply", { error: `PING returned ${reply}` });
-        return "down";
+        return this.report("redis", "down", "health.redis.unexpected_reply", {
+          error: `PING returned ${reply}`
+        });
       }
-      // Recovered — a stale cause on the next failure would send an operator
-      // after the wrong problem.
-      this.lastRedisError = null;
-      return "up";
+      this.redis.clearLastError();
+      return this.report("redis", "up", "health.redis.reachable");
     } catch (err) {
-      apiLogger.error("health.redis.unreachable", {
+      return this.report("redis", "down", "health.redis.unreachable", {
         error: describe(err),
-        cause: this.lastRedisError
+        cause: this.redis.lastError
       });
-      return "down";
     }
   }
 
@@ -146,11 +144,6 @@ export class HealthService implements OnApplicationShutdown {
     const ready = Object.values(checks).every((state) => state !== "down");
 
     return { status: ready ? "ready" : "not_ready", checks };
-  }
-
-  async onApplicationShutdown(): Promise<void> {
-    // quit() rather than disconnect(), so an in-flight probe finishes first.
-    await this.redis?.quit().catch(() => undefined);
   }
 }
 

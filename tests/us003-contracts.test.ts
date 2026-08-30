@@ -6,6 +6,8 @@ import { repoRoot } from "./helpers";
 import { startApi, type RunningApi } from "./api-server";
 import { createThrowawayDatabase, type ThrowawayDatabase } from "./pg-helpers";
 import { provisionedTenantSchema } from "../packages/contracts/src/schemas/tenant";
+import { seedPlatformAdmin, type PlatformAdminFixture } from "./tenant-fixtures";
+import { Client } from "pg";
 
 const FIXTURES = join(repoRoot, "tests/fixtures/us003");
 
@@ -50,8 +52,10 @@ describe("US-003 - shared contracts package", () => {
 
 describe.skipIf(!hasDb)("US-003 - shared contracts package (API validation)", () => {
   const PORT = 34611;
+  const JWT_SECRET = "us003-suite-signing-key-at-least-32-characters";
   let api: RunningApi | undefined;
   let db: ThrowawayDatabase | undefined;
+  let operator: PlatformAdminFixture;
 
   beforeAll(async () => {
     // US-014 made POST /tenants persist, so this needs a real schema. A
@@ -65,7 +69,18 @@ describe.skipIf(!hasDb)("US-003 - shared contracts package (API validation)", ()
       migrationsTable: "pgmigrations",
       log: () => {}
     });
-    api = await startApi(PORT, { DATABASE_URL: db.url });
+    api = await startApi(PORT, { DATABASE_URL: db.url, AUTH_JWT_SECRET: JWT_SECRET });
+
+    // `POST /tenants` is platform-only now, so validating its schema needs a
+    // caller who is allowed past the guard — otherwise every case below would
+    // be a 403 and the assertions would prove nothing about validation.
+    const client = new Client({ connectionString: db.url });
+    await client.connect();
+    try {
+      operator = await seedPlatformAdmin(client, api.baseUrl);
+    } finally {
+      await client.end();
+    }
   });
 
   afterAll(async () => {
@@ -80,7 +95,7 @@ describe.skipIf(!hasDb)("US-003 - shared contracts package (API validation)", ()
 
     const good = await fetch(`${base}/tenants`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...operator.headers },
       body: JSON.stringify({ name: "Acme", slug: "acme" })
     });
     expect(good.status).toBe(201);
@@ -97,7 +112,7 @@ describe.skipIf(!hasDb)("US-003 - shared contracts package (API validation)", ()
     // Missing required `slug` -> rejected by the shared schema.
     const bad = await fetch(`${base}/tenants`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...operator.headers },
       body: JSON.stringify({ name: "Acme" })
     });
     expect(bad.status).toBe(400);
@@ -105,7 +120,7 @@ describe.skipIf(!hasDb)("US-003 - shared contracts package (API validation)", ()
     // Wrong shape for `slug` -> also rejected.
     const badSlug = await fetch(`${base}/tenants`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...operator.headers },
       body: JSON.stringify({ name: "Acme", slug: "Not A Slug!" })
     });
     expect(badSlug.status).toBe(400);
@@ -114,9 +129,46 @@ describe.skipIf(!hasDb)("US-003 - shared contracts package (API validation)", ()
     // rejected before anything reaches the database.
     const badEmail = await fetch(`${base}/tenants`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...operator.headers },
       body: JSON.stringify({ name: "Acme Two", slug: "acme-two", adminEmail: "not-an-email" })
     });
     expect(badEmail.status).toBe(400);
+  });
+});
+
+describe("the password floor is one rule, not two", () => {
+  /**
+   * `@growpath/contracts` rejects a short password at the HTTP edge and
+   * `@growpath/db` rejects it again before writing a hash. The second check is
+   * the one that matters — it is what a caller bypassing the schema would hit —
+   * and because `db` cannot import the constant (it does not depend on the
+   * contracts package), the two are separate declarations.
+   *
+   * Separate declarations drift. The dangerous direction is silent: raise the
+   * contract to 16 and leave the database at 8, and every client looks strict
+   * while the system still accepts eight characters from anything that talks to
+   * the API directly.
+   */
+  it("agrees between the contract schema and the database layer", async () => {
+    const { MIN_PASSWORD_LENGTH: contract } = await import(
+      "../packages/contracts/src/schemas/invitation"
+    );
+    const { MIN_PASSWORD_LENGTH: database } = await import(
+      "../packages/db/src/invitations"
+    );
+
+    expect(database).toBe(contract);
+  });
+
+  it("is actually enforced by the schema at that length", async () => {
+    const { acceptInvitationSchema, MIN_PASSWORD_LENGTH } = await import(
+      "../packages/contracts/src/schemas/invitation"
+    );
+
+    const attempt = (length: number) =>
+      acceptInvitationSchema.safeParse({ token: "t", password: "a".repeat(length) }).success;
+
+    expect(attempt(MIN_PASSWORD_LENGTH)).toBe(true);
+    expect(attempt(MIN_PASSWORD_LENGTH - 1)).toBe(false);
   });
 });

@@ -5,6 +5,7 @@ import {
   runWithRequestContext,
   sanitizeCorrelationId
 } from "@growpath/observability";
+import { API_ROUTES } from "@growpath/contracts";
 import type { NextFunction, Request, Response } from "express";
 import { apiLogger } from "./logger";
 
@@ -21,6 +22,32 @@ import { apiLogger } from "./logger";
  * "log the request object" path: headers carry `authorization`, and bodies
  * carry passwords and client secrets.
  */
+/**
+ * Orchestrator probe routes, which run every few seconds for the life of the
+ * process — roughly 17k lines a day per instance at a 5s interval.
+ *
+ * Quieting them is opt-in through LOG_PROBE_REQUESTS=false rather than the
+ * default, because US-007 requires *every* request to be logged with its
+ * correlation ID and probes are requests. An operator drowning in probe lines
+ * can turn them down; nobody loses the guarantee by accident.
+ *
+ * The louder half of the problem is fixed regardless: a readiness 503 no longer
+ * writes an error line per probe, because HealthService logs a dependency
+ * failure once per state change rather than once per check.
+ */
+const PROBE_PATHS = new Set<string>([API_ROUTES.health, API_ROUTES.ready]);
+
+function probesAreQuiet(): boolean {
+  return process.env.LOG_PROBE_REQUESTS?.trim().toLowerCase() === "false";
+}
+
+function levelFor(path: string, status: number): "debug" | "info" | "error" {
+  if (PROBE_PATHS.has(path) && probesAreQuiet()) {
+    return "debug";
+  }
+  return status >= 500 ? "error" : "info";
+}
+
 @Injectable()
 export class CorrelationMiddleware implements NestMiddleware {
   use(req: Request, res: Response, next: NextFunction): void {
@@ -37,7 +64,7 @@ export class CorrelationMiddleware implements NestMiddleware {
         // then authentication has filled in the tenant and user IDs.
         res.on("finish", () => {
           const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
-          const log = res.statusCode >= 500 ? apiLogger.error : apiLogger.info;
+          const log = apiLogger[levelFor(req.path, res.statusCode)];
           log("http.request.completed", {
             method: req.method,
             // `path`, never `originalUrl`: the query string is where tokens and

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { repoRoot } from "./helpers";
 import { createThrowawayDatabase, type ThrowawayDatabase } from "./pg-helpers";
 import { startApi, type RunningApi } from "./api-server";
+import { seedPlatformAdmin, type PlatformAdminFixture } from "./tenant-fixtures";
 import {
   withRequestTenantScope,
   withoutTenantScope,
@@ -22,6 +23,7 @@ import {
 const MIGRATIONS_DIR = join(repoRoot, "packages/db/migrations");
 const MIGRATIONS_TABLE = "pgmigrations";
 const PORT = 34819;
+const JWT_SECRET = "us012-suite-signing-key-at-least-32-characters";
 
 const adminUrl = process.env.DATABASE_URL;
 const hasDb = Boolean(adminUrl);
@@ -37,6 +39,7 @@ describe.skipIf(!hasDb)("US-012 - automatic tenant scoping in the data layer", (
   let db: ThrowawayDatabase | undefined;
   let pool: Pool;
   let api: RunningApi | undefined;
+  let operator: PlatformAdminFixture;
   let tenantA: string;
   let tenantB: string;
 
@@ -66,7 +69,15 @@ describe.skipIf(!hasDb)("US-012 - automatic tenant scoping in the data layer", (
     tenantA = tenants.rows[0].id; // acme
     tenantB = tenants.rows[1].id; // globex
 
-    api = await startApi(PORT, { DATABASE_URL: db.url }, { captureLogs: true });
+    api = await startApi(
+      PORT,
+      { DATABASE_URL: db.url, AUTH_JWT_SECRET: JWT_SECRET },
+      { captureLogs: true }
+    );
+
+    // Provisioning is platform-only, so AC2's assertion about the escape
+    // hatch's log line needs a caller the guard lets through.
+    operator = await seedPlatformAdmin(pool, api.baseUrl);
   });
 
   afterAll(async () => {
@@ -195,7 +206,10 @@ describe.skipIf(!hasDb)("US-012 - automatic tenant scoping in the data layer", (
       method: "POST",
       headers: {
         "content-type": "application/json",
-        [CORRELATION_ID_HEADER]: correlationId
+        [CORRELATION_ID_HEADER]: correlationId,
+        // Provisioning is platform-only now; without this the request never
+        // reaches the escape hatch whose log line this test is looking for.
+        ...operator.headers
       },
       body: JSON.stringify({ name: "Soylent", slug: "soylent" })
     });
@@ -216,7 +230,21 @@ describe.skipIf(!hasDb)("US-012 - automatic tenant scoping in the data layer", (
             return [];
           }
         })
-        .find((line) => line.msg === "tenant.scope.bypassed" && line.correlationId === correlationId);
+        /*
+         * Matched on the reason as well as the correlation ID.
+         *
+         * A provisioning request now logs two bypasses, both legitimate: the
+         * platform guard resolves the reserved tenant — which by definition is
+         * not the tenant of any scoped session — and then provisioning creates
+         * the tenant there is no context for. Taking whichever landed first
+         * would make this assertion depend on the order.
+         */
+        .find(
+          (line) =>
+            line.msg === "tenant.scope.bypassed" &&
+            line.correlationId === correlationId &&
+            /provisioning/i.test(String(line.reason))
+        );
       if (!bypass) await new Promise((r) => setTimeout(r, 50));
     }
 

@@ -7,6 +7,7 @@ import { createThrowawayDatabase, type ThrowawayDatabase } from "./pg-helpers";
 import { startApi, type RunningApi } from "./api-server";
 import { provisionedTenantSchema } from "../packages/contracts/src/schemas/tenant";
 import { DEFAULT_ROLES, DEFAULT_ADMIN_ROLE } from "../packages/db/src/provisioning";
+import { seedPlatformAdmin, type PlatformAdminFixture } from "./tenant-fixtures";
 
 const MIGRATIONS_DIR = join(repoRoot, "packages/db/migrations");
 
@@ -32,9 +33,11 @@ async function withClient<T>(url: string, fn: (client: Client) => Promise<T>): P
 
 describe.skipIf(!hasDb)("US-014 - tenant provisioning API", () => {
   const PORT = 34712;
+  const JWT_SECRET = "us014-suite-signing-key-at-least-32-characters";
   let db: ThrowawayDatabase | undefined;
   let api: RunningApi | undefined;
   let baseUrl: string;
+  let operator: PlatformAdminFixture;
 
   beforeAll(async () => {
     db = await createThrowawayDatabase(adminUrl!);
@@ -46,8 +49,14 @@ describe.skipIf(!hasDb)("US-014 - tenant provisioning API", () => {
       migrationsTable: "pgmigrations",
       log: () => {}
     });
-    api = await startApi(PORT, { DATABASE_URL: db.url });
+    api = await startApi(PORT, { DATABASE_URL: db.url, AUTH_JWT_SECRET: JWT_SECRET });
     baseUrl = api.baseUrl;
+
+    // `POST /tenants` requires a platform administrator: an unauthenticated
+    // endpoint that mints tenants is one anybody reaching the port may use, and
+    // any tenant administrator could use it too. The fixture is built through
+    // the real bootstrap path rather than by forging a token.
+    operator = await withClient(db.url, (client) => seedPlatformAdmin(client, baseUrl));
   });
 
   afterAll(async () => {
@@ -59,7 +68,7 @@ describe.skipIf(!hasDb)("US-014 - tenant provisioning API", () => {
   const post = (body: unknown): Promise<Response> =>
     fetch(`${baseUrl}/tenants`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...operator.headers },
       body: JSON.stringify(body)
     });
 
@@ -111,6 +120,69 @@ describe.skipIf(!hasDb)("US-014 - tenant provisioning API", () => {
         [tenantId, users.rows[0].id]
       );
       expect(assignment.rows.map((r) => r.role_name)).toEqual([DEFAULT_ADMIN_ROLE]);
+    });
+  });
+
+  /**
+     * The roles carry authority, not just names.
+     *
+     * This is the assertion whose absence let provisioning ship creating two
+     * roles and granting them nothing. Everything above passed — the roles
+     * existed, the admin held one — while a freshly provisioned tenant opened
+     * its permission matrix on a grid of unchecked boxes and its admin could be
+     * granted less than a viewer implies. "The row exists" and "the row means
+     * something" are different claims, and only the first was being made.
+     */
+    it("AC1: the default roles are granted their permissions", async () => {
+    // Provisioned by the test above; this asserts on the same tenant rather
+    // than creating a second one, so it is checking what that flow produced.
+    await withClient(db!.url, async (client) => {
+      {
+        const tenantId = (
+          await client.query<{ id: string }>("SELECT id FROM tenant WHERE slug = $1", [
+            "initech"
+          ])
+        ).rows[0].id;
+
+        /**
+         * Compared against the catalogue as it actually stands rather than a
+         * hard-coded list, so a permission added by a later migration has to be
+         * granted to admin rather than quietly skipped here.
+         *
+         * `platform.*` is the one documented exception, and it is excluded in
+         * the query rather than in the expectation so that the rule reads the
+         * same way here as it does in `permissionsForDefaultRole`: these keys
+         * reach across tenants, and an incoming tenant's administrator holding
+         * them would be the escalation the whole tier is fenced against. The
+         * database refuses the grant outright, so this asserts a behaviour that
+         * cannot silently regress — only fail loudly.
+         */
+        const catalogue = (
+          await client.query<{ key: string }>(
+            "SELECT key FROM permission WHERE key NOT LIKE 'platform.%' ORDER BY key"
+          )
+        ).rows.map((row) => row.key);
+        expect(catalogue.length).toBeGreaterThan(0);
+
+        const granted = await client.query<{ role: string; key: string }>(
+          `SELECT r.name AS role, p.key
+             FROM role r
+             JOIN role_permission rp ON rp.role_id = r.id
+             JOIN permission p ON p.id = rp.permission_id
+            WHERE r.tenant_id = $1
+            ORDER BY r.name, p.key`,
+          [tenantId]
+        );
+
+        const byRole = (name: string) =>
+          granted.rows.filter((row) => row.role === name).map((row) => row.key);
+
+        // Admin holds everything; viewer holds the read half. The same rule the
+        // demo seed uses, now applied to real provisioning.
+        expect(byRole("admin")).toEqual(catalogue);
+        expect(byRole("viewer")).toEqual(catalogue.filter((key) => key.endsWith(".read")));
+        expect(byRole("viewer").length).toBeGreaterThan(0);
+      }
     });
   });
 

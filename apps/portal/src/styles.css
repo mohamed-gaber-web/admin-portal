@@ -1,8 +1,370 @@
-:root {
-  font-family: system-ui, -apple-system, sans-serif;
+/**
+ * Inter, self-hosted as a variable font.
+ *
+ * The config named Inter from the start and nothing ever loaded it, so every
+ * screen was silently falling back to the OS UI face — Segoe UI on Windows —
+ * which is the single biggest reason a careful layout can still look unfinished.
+ * Self-hosted rather than from a CDN: no third-party request on first paint, no
+ * font blocked by a strict CSP, and it works offline.
+ */
+@import "@fontsource-variable/inter";
+
+/**
+ * Noto Sans Arabic, for the Arabic locale.
+ *
+ * Inter carries no Arabic glyphs, so without this every Arabic screen falls
+ * back to whatever the OS supplies — which on Windows is Tahoma, and is exactly
+ * the "looks unfinished" problem the Latin side already had. Loaded
+ * unconditionally but applied only under `:lang(ar)`; the browser fetches it
+ * lazily because no glyph in it is used until the locale switches.
+ */
+@import "@fontsource-variable/noto-sans-arabic";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Design tokens.
+ *
+ * Two palettes, one set of names. Components only ever reference the semantic
+ * name (`surface`, `foreground-muted`, `danger`), so switching themes is a
+ * class on <html> and nothing below has to know it happened.
+ *
+ * Colours are bare HSL channels, not `hsl(...)` strings, so Tailwind's
+ * `<alpha-value>` placeholder can inject opacity — `bg-primary/10` works.
+ *
+ * The dark palette is not the light one inverted. Dark surfaces get *lighter*
+ * as they come forward while light surfaces get darker, and saturated accents
+ * are lifted in lightness so they do not vibrate against a near-black ground.
+ */
+
+@layer base {
+  :root {
+    /**
+     * Chrome.
+     *
+     * The page sits a clear step below the cards rather than a hair below.
+     * When the two are nearly the same white, every card border has to do the
+     * separating on its own and the whole screen reads as one flat sheet with
+     * lines drawn on it.
+     */
+    --color-background: 220 24% 96%;
+    --color-surface: 0 0% 100%;
+    --color-surface-muted: 220 22% 97%;
+    --color-surface-hover: 220 20% 94%;
+    --color-border: 220 18% 89%;
+    --color-border-strong: 220 15% 80%;
+
+    /* Text */
+    --color-foreground: 224 33% 12%;
+    --color-foreground-muted: 220 11% 44%;
+    --color-foreground-subtle: 220 10% 58%;
+
+    /* Intent */
+    --color-primary: 243 75% 58%;
+    --color-primary-hover: 243 70% 51%;
+    --color-primary-foreground: 0 0% 100%;
+    --color-primary-subtle: 243 92% 96%;
+
+    --color-success: 152 62% 34%;
+    --color-success-foreground: 0 0% 100%;
+    --color-success-subtle: 152 58% 94%;
+
+    --color-warning: 32 88% 43%;
+    --color-warning-foreground: 0 0% 100%;
+    --color-warning-subtle: 40 92% 93%;
+
+    --color-danger: 0 72% 48%;
+    --color-danger-hover: 0 70% 42%;
+    --color-danger-foreground: 0 0% 100%;
+    --color-danger-subtle: 0 86% 96%;
+
+    --color-info: 205 85% 42%;
+    --color-info-foreground: 0 0% 100%;
+    --color-info-subtle: 205 90% 95%;
+
+    --color-ring: 243 75% 58%;
+
+    /**
+     * Series colours, in fixed slot order.
+     *
+     * Two slots, because no chart here plots more than two things at once — a
+     * third would be appended, never picked at the call site, and never a reuse
+     * of `success`/`danger` (reserved for state; a series wearing one reads as
+     * an alarm). Both pairs were checked against the surface they render on for
+     * contrast, chroma, lightness band, and separation under protanopia,
+     * deuteranopia and tritanopia. Changing a hue means re-running that check.
+     */
+    --color-chart-1: 243 75% 58%;
+    --color-chart-2: 17 82% 56%;
+    --color-grid: 220 18% 91%;
+
+    /**
+     * Elevation, defined per theme rather than as one scale with a swapped
+     * colour. A shadow tuned for white is nearly invisible on a dark ground —
+     * there is no lighter surface for it to fall on — so dark needs its own,
+     * much deeper, values. Layered rather than single, because one hard offset
+     * shadow is the flattest-looking option available.
+     */
+    --shadow-card: 0 1px 2px -1px hsl(224 40% 18% / 0.08),
+      0 2px 8px -2px hsl(224 40% 18% / 0.06);
+    --shadow-popover: 0 4px 12px -2px hsl(224 40% 18% / 0.1),
+      0 12px 32px -8px hsl(224 40% 18% / 0.14);
+    --shadow-modal: 0 24px 64px -16px hsl(224 40% 18% / 0.3);
+    /* A tinted glow under primary buttons, so the main action has weight. */
+    --shadow-primary: 0 1px 2px 0 hsl(243 75% 40% / 0.2),
+      0 4px 12px -2px hsl(243 75% 50% / 0.28);
+
+    /* Hairline highlight along the top edge of raised surfaces. */
+    --edge-highlight: 0 0% 100%;
+    --edge-highlight-opacity: 0;
+
+    /**
+     * Which side the mobile drawer slides in from, as a multiplier.
+     *
+     * A `@keyframes` block cannot see the writing direction, so the direction
+     * is handed to it as a variable and flipped by the `[dir="rtl"]` rule below.
+     */
+    --slide-from: -1;
+  }
+
+  [dir="rtl"] {
+    --slide-from: 1;
+  }
+
+  .dark {
+    --color-background: 226 30% 7%;
+    --color-surface: 226 26% 10.5%;
+    --color-surface-muted: 226 22% 14%;
+    --color-surface-hover: 226 20% 17.5%;
+    --color-border: 226 18% 19%;
+    --color-border-strong: 226 15% 30%;
+
+    --color-foreground: 220 24% 97%;
+    --color-foreground-muted: 220 13% 70%;
+    --color-foreground-subtle: 220 11% 52%;
+
+    --color-primary: 243 85% 72%;
+    --color-primary-hover: 243 88% 79%;
+    --color-primary-foreground: 240 55% 11%;
+    --color-primary-subtle: 243 45% 22%;
+
+    --color-success: 152 55% 47%;
+    --color-success-foreground: 150 60% 8%;
+    --color-success-subtle: 152 38% 19%;
+
+    --color-warning: 38 92% 58%;
+    --color-warning-foreground: 30 65% 10%;
+    --color-warning-subtle: 38 42% 21%;
+
+    --color-danger: 0 75% 63%;
+    --color-danger-hover: 0 78% 70%;
+    --color-danger-foreground: 0 60% 10%;
+    --color-danger-subtle: 0 42% 23%;
+
+    --color-info: 205 85% 62%;
+    --color-info-foreground: 205 65% 10%;
+    --color-info-subtle: 205 42% 21%;
+
+    --color-ring: 243 85% 72%;
+
+    /* Re-stepped for the dark surface, not the light values reused. */
+    --color-chart-1: 243 85% 72%;
+    --color-chart-2: 17 70% 50%;
+    --color-grid: 226 18% 18%;
+
+    --shadow-card: 0 1px 2px -1px hsl(226 60% 2% / 0.6),
+      0 2px 8px -2px hsl(226 60% 2% / 0.45);
+    --shadow-popover: 0 4px 12px -2px hsl(226 60% 2% / 0.6),
+      0 16px 40px -12px hsl(226 60% 2% / 0.75);
+    --shadow-modal: 0 32px 80px -20px hsl(226 70% 1% / 0.85);
+    --shadow-primary: 0 1px 2px 0 hsl(243 60% 8% / 0.5),
+      0 4px 16px -3px hsl(243 85% 60% / 0.35);
+
+    /**
+     * On dark, a raised surface reads as raised because its top edge catches
+     * light — the way a physical object does. Shadow alone cannot do it here:
+     * there is nothing darker than the page for it to fall on.
+     */
+    --edge-highlight-opacity: 0.06;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    margin: 0;
+    /* Inter's contextual alternates: a proper single-storey 'a' in some cuts
+       and correctly shaped arrows. Cheap, and it stops the face looking like
+       a default. */
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /**
+   * Arabic typography.
+   *
+   * Keyed on language, not on `[dir="rtl"]`: direction and script are different
+   * things, and Latin text inside an Arabic page — a slug, an email, a tenant
+   * id — should stay in Inter rather than be rendered by an Arabic face that
+   * has no opinion about it.
+   *
+   * `[lang="ar"]` rather than the more natural `:lang(ar)`, because the CSS
+   * minifier does not implement that pseudo-class and **silently drops the
+   * whole rule** — it warns at build time and then ships a build where Arabic
+   * falls back to a system font. The attribute selector behaves the same here:
+   * it matches <html> when Arabic is active, and font-family inherits from
+   * there, plus any element explicitly tagged (the language switch labels each
+   * option in its own script).
+   *
+   * The size bump is not decoration. At a common size Arabic reads noticeably
+   * smaller than Latin, because its letterforms carry meaning below the
+   * baseline and in the diacritics; the extra line-height gives those room.
+   */
+  [lang="ar"] {
+    font-family: "Noto Sans Arabic Variable", "Noto Sans Arabic", "Segoe UI",
+      sans-serif;
+    font-size: 1.02em;
+    line-height: 1.75;
+    /* Inter's Latin alternates mean nothing here and cost shaping work. */
+    font-feature-settings: normal;
+  }
+
+  /**
+   * Headings tighten as they grow.
+   *
+   * Default tracking is set for body copy; at 24px and up it reads loose and
+   * slightly amateur. Negative tracking on large text is most of the difference
+   * between "system default" and "typeset".
+   */
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.019em;
+  }
+
+  /**
+   * One focus treatment for the whole app.
+   *
+   * `:focus-visible` rather than `:focus` so a mouse click on a button does not
+   * leave a ring behind, while keyboard traversal always shows one. Removing
+   * the ring instead of restyling it is how keyboard users get stranded.
+   */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  ::selection {
+    @apply bg-primary/25;
+  }
+
+  /* Scrollbars, toned down to match the surface rather than the OS. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--color-border-strong)) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full border-4 border-solid border-transparent bg-border-strong bg-clip-content;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-foreground-subtle;
+  }
+
+  /**
+   * Honour the OS reduced-motion setting globally.
+   *
+   * Every transition in this app is decorative — nothing conveys state through
+   * motion alone — so cutting them costs nothing and prevents the vestibular
+   * discomfort that sliding drawers and fades can cause.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
-body {
-  margin: 0;
-  padding: 2rem;
+@layer components {
+  /**
+   * The skeleton shimmer.
+   *
+   * A component class rather than a utility soup because it needs a
+   * pseudo-element for the travelling highlight, which utilities cannot express.
+   */
+  .skeleton {
+    @apply relative overflow-hidden rounded-md bg-surface-muted;
+  }
+
+  .skeleton::after {
+    @apply absolute inset-0 animate-shimmer bg-gradient-to-r from-transparent via-foreground/[0.07] to-transparent;
+    content: "";
+    /* Starting edge, mirrored under RTL by the same variable the drawer uses. */
+    transform: translateX(calc(var(--slide-from, -1) * 100%));
+  }
+
+  /**
+   * A raised panel: card, popover, dialog, sidebar.
+   *
+   * The `::before` is the top-edge highlight — invisible in light mode (opacity
+   * 0) and a 1px catch of light in dark. It is a pseudo-element rather than a
+   * border so it does not affect layout or fight the real border.
+   */
+  .raised {
+    @apply relative;
+  }
+
+  .raised::before {
+    @apply pointer-events-none absolute inset-x-0 top-0 h-px rounded-t-[inherit];
+    content: "";
+    background: linear-gradient(
+      to right,
+      transparent,
+      hsl(var(--edge-highlight) / var(--edge-highlight-opacity)) 20%,
+      hsl(var(--edge-highlight) / var(--edge-highlight-opacity)) 80%,
+      transparent
+    );
+  }
+
+  /**
+   * The page-level ambience behind the sign-in screens.
+   *
+   * Two soft, very low-opacity colour washes. Enough to stop a centred card on
+   * an empty background looking like an unstyled form, and far too faint to
+   * compete with anything on top of it.
+   */
+  .auth-ambience {
+    background-image:
+      radial-gradient(
+        ellipse 80% 50% at 50% -10%,
+        hsl(var(--color-primary) / 0.13),
+        transparent
+      ),
+      radial-gradient(
+        ellipse 60% 50% at 90% 100%,
+        hsl(var(--color-chart-2) / 0.07),
+        transparent
+      );
+  }
 }

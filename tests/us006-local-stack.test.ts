@@ -121,7 +121,11 @@ describe.skipIf(!hasDb)("US-006 - seed data", () => {
 
     await withClient(db.url, async (client) => {
       const tenants = await client.query<{ id: string; slug: string; name: string }>(
-        "SELECT id, slug, name FROM tenant ORDER BY slug"
+        // The reserved platform tenant is excluded: it is created by the
+        // platform-administration migration, not by the seed, and it is not demo
+        // data — a deployment with no platform tenant is one where no tenant can
+        // ever be created. This assertion is about what `runSeedScript` produced.
+        "SELECT id, slug, name FROM tenant WHERE NOT is_platform ORDER BY slug"
       );
 
       // Two tenants, not one — every isolation test needs a second tenant.
@@ -159,19 +163,34 @@ describe.skipIf(!hasDb)("US-006 - seed data", () => {
     });
 
     // Re-running must not duplicate anything — `pnpm setup` seeds every time.
-    runSeedScript(db.url);
+    //
+    // Compared before and after rather than against absolute totals. The
+    // criterion is "re-seeding adds nothing", and a hardcoded count answers it
+    // only until something other than the seed writes a row — the reserved
+    // platform tenant and its operator account both arrive by migration, and
+    // each one broke this assertion in turn while saying nothing about
+    // idempotency.
+    const COUNTED_TABLES = ["tenant", "user", "company", "audit_log", "tenant_mobile_config"];
 
-    await withClient(db.url, async (client) => {
-      expect(await countRows(client, "tenant"), "re-seeding must not add tenants").toBe(2);
-      expect(await countRows(client, "user"), "re-seeding must not duplicate users").toBe(
-        DEMO_TENANTS.reduce((n, t) => n + t.users.length, 0)
-      );
-      expect(await countRows(client, "company"), "re-seeding must not duplicate companies").toBe(
-        DEMO_TENANTS.reduce((n, t) => n + t.companies.length, 0)
-      );
-      expect(await countRows(client, "audit_log"), "re-seeding must not duplicate audit entries").toBe(
-        DEMO_TENANTS.reduce((n, t) => n + t.auditLog.length, 0)
-      );
-    });
+    const totals = async (): Promise<Record<string, number>> =>
+      withClient(db!.url, async (client) => {
+        const counts: Record<string, number> = {};
+        for (const table of COUNTED_TABLES) {
+          counts[table] = await countRows(client, table);
+        }
+        return counts;
+      });
+
+    const before = await totals();
+    runSeedScript(db.url);
+    const after = await totals();
+
+    expect(after, "re-seeding must not duplicate any seeded row").toEqual(before);
+
+    // Guard against a vacuous pass: the tables must have held something to
+    // begin with, or "unchanged" would be a statement about nothing.
+    for (const table of COUNTED_TABLES) {
+      expect(before[table], `${table} must be seeded for this to mean anything`).toBeGreaterThan(0);
+    }
   });
 });

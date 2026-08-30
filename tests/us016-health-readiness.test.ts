@@ -76,6 +76,28 @@ async function startStubRedis(): Promise<StubRedis> {
   };
 }
 
+/**
+ * Polls readiness until it reports ready, or the deadline passes.
+ *
+ * Returns the last response either way, so a genuine failure surfaces the real
+ * body and status rather than a timeout with nothing to look at.
+ */
+async function readinessWhenSettled(
+  api: RunningApi,
+  timeoutMs = 15000
+): Promise<{ status: number; body: ReturnType<typeof readinessSchema.parse> }> {
+  const deadline = Date.now() + timeoutMs;
+  let last: { status: number; body: ReturnType<typeof readinessSchema.parse> };
+  for (;;) {
+    const res = await fetch(`${api.baseUrl}${API_ROUTES.ready}`);
+    last = { status: res.status, body: readinessSchema.parse(await res.json()) };
+    if (last.status === 200 || Date.now() >= deadline) {
+      return last;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
 describe.skipIf(!hasDb)("US-016 - health and readiness endpoints", () => {
   let db: ThrowawayDatabase | undefined;
 
@@ -103,12 +125,20 @@ describe.skipIf(!hasDb)("US-016 - health and readiness endpoints", () => {
     let api: RunningApi | undefined;
 
     try {
-      api = await startApi(34816, { DATABASE_URL: db!.url, REDIS_URL: redis.url });
+      api = await startApi(
+        34861,
+        { DATABASE_URL: db!.url, REDIS_URL: redis.url },
+        { captureLogs: true }
+      );
 
-      const res = await fetch(`${api.baseUrl}${API_ROUTES.ready}`);
-      expect(res.status).toBe(200);
+      // startApi waits on liveness, which deliberately touches no dependency,
+      // so the first readiness call pays for a cold Postgres connection and a
+      // cold Redis socket. Exceeding the 2s probe budget there is the endpoint
+      // working as designed — an instance still wiring up its dependencies is
+      // genuinely not ready — so poll rather than demand it first time.
+      const { status, body } = await readinessWhenSettled(api);
 
-      const body = readinessSchema.parse(await res.json());
+      expect(status, `readiness never became ready. Server logs:\n${api.logs()}`).toBe(200);
       expect(body.status).toBe("ready");
       expect(body.checks.database).toBe("up");
       expect(body.checks.redis).toBe("up");
@@ -148,7 +178,7 @@ describe.skipIf(!hasDb)("US-016 - health and readiness endpoints", () => {
     const scenarios = [
       {
         name: "Redis unreachable",
-        port: 34817,
+        port: 34862,
         env: { DATABASE_URL: db!.url, REDIS_URL: CLOSED_REDIS_URL },
         down: "redis" as const,
         healthy: "database" as const,
@@ -160,7 +190,7 @@ describe.skipIf(!hasDb)("US-016 - health and readiness endpoints", () => {
       },
       {
         name: "database unreachable",
-        port: 34818,
+        port: 34863,
         env: { DATABASE_URL: CLOSED_DATABASE_URL, REDIS_URL: "" },
         down: "database" as const,
         healthy: null,
@@ -169,7 +199,7 @@ describe.skipIf(!hasDb)("US-016 - health and readiness endpoints", () => {
       },
       {
         name: "REDIS_URL unset in production",
-        port: 34819,
+        port: 34864,
         env: { DATABASE_URL: db!.url, REDIS_URL: "", NODE_ENV: "production" },
         down: "redis" as const,
         healthy: "database" as const,
