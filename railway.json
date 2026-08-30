@@ -2,7 +2,7 @@
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "pnpm install --frozen-lockfile && pnpm --filter @growpath/api build"
+    "buildCommand": "pnpm install --frozen-lockfile && pnpm --filter @growpath/api... build"
   },
   "deploy": {
     "startCommand": "pnpm --filter @growpath/db migrate:up && node apps/api/dist/main.js",
