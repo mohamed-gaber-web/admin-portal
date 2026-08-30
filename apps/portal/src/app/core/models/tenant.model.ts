@@ -12,6 +12,25 @@ export interface TenantSummary {
   status: TenantStatus;
   plan: TenantPlan;
   userCount: number;
+  /**
+   * Seats the tenant's package includes.
+   *
+   * Beside `userCount` so every screen that shows one can show the other. The
+   * pair is the useful fact — "24 users" says nothing an operator can act on,
+   * and "24 of 25" says a customer is one hire away from being stuck.
+   */
+  userLimit: number;
+  /**
+   * The tenant's own negotiated allowance, or null when it inherits its package.
+   *
+   * `userLimit` above is always the effective number, so every screen that only
+   * renders a limit reads that one. This exists for the screen that *edits* the
+   * allowance, which has to distinguish "40, because somebody agreed to 40" from
+   * "25, because that is what Growth includes".
+   */
+  seatLimitOverride: number | null;
+  /** The tenant's admin address, for an operator who needs to contact them. */
+  adminEmail: string;
   /** ISO-8601. Kept as a string because that is what JSON carries. */
   createdAt: string;
 }
@@ -33,6 +52,30 @@ export const TENANT_PLANS: readonly TenantPlan[] = [
   "growth",
   "enterprise"
 ];
+
+/**
+ * One package on offer, as `GET /platform/plans` returns it.
+ *
+ * The seat count is fetched rather than declared beside `TENANT_PLANS` above,
+ * and the split is the same one the contracts package draws: which packages
+ * exist is a closed set the compiler checks against, and how many users each
+ * includes is a number an installation can change without a release. Hard-coding
+ * it here would be a second copy free to disagree with the database.
+ */
+export interface Plan {
+  key: TenantPlan;
+  description: string;
+  userLimit: number;
+  /**
+   * Tenants currently on this package.
+   *
+   * Shown beside the seat count on the packages screen, so an operator can see
+   * how many customers a change reaches before making it. Raising a number is
+   * harmless; lowering one stops hiring for every tenant on the package that has
+   * no negotiated figure of its own.
+   */
+  tenantCount: number;
+}
 
 /**
  * A D365 environment belonging to a tenant.
@@ -73,7 +116,6 @@ export interface TenantCompany {
 
 /** Everything the tenant detail screen shows, in one shape. */
 export interface TenantDetail extends TenantSummary {
-  adminEmail: string;
   environments: TenantEnvironment[];
 }
 

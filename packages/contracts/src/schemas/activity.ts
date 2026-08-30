@@ -72,7 +72,19 @@ const SEVERITY_BY_ACTION: Record<string, ActivitySeverity> = {
   // without being told, so they read as warnings rather than as notes.
   "tenant.plan_changed": "info",
   "tenant.unsubscribed": "danger",
-  "tenant.modules_changed": "warning"
+  "tenant.modules_changed": "warning",
+  // A seat allowance moving. `info` rather than `warning`: the common case is an
+  // operator granting a customer *more* room, and the cut is already visible as
+  // the tenant being unable to invite.
+  // A tenant renamed. `info`: it changes what the tenant is called and nothing
+  // about what it may do.
+  "tenant.renamed": "info",
+  "tenant.seats_changed": "info",
+  // A *package's* allowance moving, which reaches every tenant on it that has
+  // no negotiated figure. `warning` rather than the `info` its per-tenant
+  // counterpart gets, and the difference is the blast radius: one is a
+  // concession to one customer, this is a change to what the product sells.
+  "plan.seats_changed": "warning"
 };
 
 export function severityForAction(action: string): ActivitySeverity {

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject, output, signal } from "@angular/core";
 import { FormBuilder, ReactiveFormsModule, Validators } from "@angular/forms";
-import type { ProvisionedTenant } from "@growpath/contracts";
+import { DEFAULT_TENANT_PLAN, type ProvisionedTenant } from "@growpath/contracts";
 import { describeError } from "@core/http/api-error";
 import { I18nService, injectT } from "@core/i18n/i18n.service";
 import { ToastService } from "@core/notifications/toast.service";
@@ -10,8 +10,11 @@ import {
   FieldComponent,
   IconComponent,
   InputDirective,
-  ModalComponent
+  ModalComponent,
+  SelectDirective
 } from "@shared/ui";
+import { TENANT_PLAN_LABEL_KEYS } from "@core/i18n/label-keys";
+import { TENANT_PLANS, type TenantPlan } from "@core/models";
 import { PlatformService } from "../platform.service";
 
 const SLUG_PATTERN = /^[a-z0-9-]+$/;
@@ -42,7 +45,8 @@ const SLUG_PATTERN = /^[a-z0-9-]+$/;
     FieldComponent,
     IconComponent,
     InputDirective,
-    ModalComponent
+    ModalComponent,
+    SelectDirective
   ],
   template: `
     <ui-modal
@@ -120,6 +124,31 @@ const SLUG_PATTERN = /^[a-z0-9-]+$/;
             />
           </ui-field>
 
+          <!--
+            The package, and so the seat allowance the tenant starts with.
+
+            A select rather than the radio group the subscription card uses:
+            that card is a screen whose whole subject is the package, and this is
+            one field among four on a create form. The seat count rides in the
+            option text because it is the thing that actually distinguishes the
+            choices — "Growth" means nothing without "25 users" beside it.
+
+            Falls back to the plain labels until the catalogue loads, so the
+            field is usable immediately and never shows a package that appears
+            to include no users.
+          -->
+          <ui-field
+            [label]="t('createTenant.plan')"
+            controlId="tenant-plan"
+            [hint]="t('createTenant.planHint')"
+          >
+            <select uiSelect id="tenant-plan" formControlName="plan">
+              @for (plan of PLANS; track plan) {
+                <option [value]="plan">{{ optionLabel(plan) }}</option>
+              }
+            </select>
+          </ui-field>
+
           <ui-field
             [label]="t('createTenant.adminEmail')"
             controlId="tenant-admin"
@@ -174,8 +203,44 @@ export class CreateTenantDialogComponent {
   protected readonly form = inject(FormBuilder).nonNullable.group({
     name: ["", [Validators.required]],
     slug: ["", [Validators.required, Validators.pattern(SLUG_PATTERN)]],
+    /**
+     * Pre-selected to the same package the database would have applied.
+     *
+     * So the form states the default rather than leaving it implicit: an
+     * operator who does not touch this field gets exactly what they would have
+     * got before it existed, and one who does can see what they are changing
+     * from.
+     */
+    plan: [DEFAULT_TENANT_PLAN as TenantPlan],
     adminEmail: [""]
   });
+
+  protected readonly PLANS = TENANT_PLANS;
+
+  /** Seats per package, once the catalogue arrives. Empty until then. */
+  private readonly seats = signal<Map<string, number>>(new Map());
+
+  constructor() {
+    /*
+     * Fetched so the options can say what each package includes. The failure
+     * branch is deliberately silent: the labels still render, choosing a
+     * package still works, and an operator creating a tenant does not need to
+     * be told that an annotation could not be fetched.
+     */
+    this.platform.listPlans().subscribe({
+      next: (plans) => this.seats.set(new Map(plans.map((plan) => [plan.key, plan.userLimit]))),
+      error: () => this.seats.set(new Map())
+    });
+  }
+
+  /** "Growth — 25 users", or just "Growth" while the catalogue is loading. */
+  protected optionLabel(plan: string): string {
+    const label = this.t(TENANT_PLAN_LABEL_KEYS[plan as TenantPlan]);
+    const included = this.seats().get(plan);
+    return included === undefined
+      ? label
+      : `${label} — ${this.t("createTenant.planSeats", { count: included })}`;
+  }
 
   protected slugError(): string | null {
     const field = this.form.controls.slug;
@@ -210,13 +275,13 @@ export class CreateTenantDialogComponent {
       return;
     }
 
-    const { name, slug, adminEmail } = this.form.getRawValue();
+    const { name, slug, plan, adminEmail } = this.form.getRawValue();
     this.submitting.set(true);
 
     this.platform
       // Omitted rather than sent empty: the schema marks it optional, and ""
       // would fail its email check.
-      .createTenant({ name, slug, ...(adminEmail ? { adminEmail } : {}) })
+      .createTenant({ name, slug, plan, ...(adminEmail ? { adminEmail } : {}) })
       .subscribe({
         next: (result) => {
           this.submitting.set(false);

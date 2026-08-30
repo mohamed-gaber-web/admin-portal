@@ -6,6 +6,7 @@ import {
   setUserName,
   setUserRoles,
   setUserStatus,
+  SeatLimitReachedError,
   UserAlreadyActiveError,
   withRequestTenantScope,
   type AuditActor,
@@ -148,6 +149,22 @@ export class UserService {
         // 409: the caller can act on this — the person already has an account,
         // so what they wanted was a password reset or a role change.
         throw new ConflictException({ message: err.message });
+      }
+      if (err instanceof SeatLimitReachedError) {
+        /**
+         * 409 as well, and for the same reason: nothing is broken, the request
+         * conflicts with a state the caller can change. Not 402 — the tenant is
+         * paid up, they have simply used what they bought — and not 403, which
+         * would say this administrator may not invite people when in fact they
+         * may, just not a twenty-sixth one.
+         *
+         * The counts ride along beside the message so the portal can render
+         * them rather than parse them back out of the prose.
+         */
+        throw new ConflictException({
+          message: err.message,
+          seats: err.usage
+        });
       }
       throw err;
     }

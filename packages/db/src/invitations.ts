@@ -1,6 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { argon2id, argon2Verify } from "hash-wasm";
 import { recordAuditEntry, type AuditActor } from "./audit";
+import { assertSeatAvailable } from "./modules";
 import type { Queryable } from "./tenancy";
 
 /**
@@ -208,6 +209,22 @@ export async function issueInvitation(
   }
 
   if (!userId) {
+    /**
+     * The seat check, and only on this branch.
+     *
+     * Re-inviting somebody who is already `invited` reaches here with a
+     * `userId` and skips it, which is deliberate: that person already occupies
+     * a seat, so reissuing their link consumes nothing. Refusing it would strand
+     * the one user a full tenant most needs to fix — the administrator whose
+     * invitation expired before they accepted it.
+     *
+     * Inside the caller's transaction, immediately before the insert, so the
+     * window between reading the count and taking the seat is as small as a
+     * statement. See `assertSeatAvailable` for what that does and does not
+     * guarantee.
+     */
+    await assertSeatAvailable(db, input.tenantId);
+
     const created = await db.query<{ id: string }>(
       `INSERT INTO "user" (tenant_id, email, status) VALUES ($1, $2, 'invited') RETURNING id`,
       [input.tenantId, email]

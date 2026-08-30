@@ -53,12 +53,14 @@ const toSummary = (record: TenantSummaryRecord): TenantSummary => ({
   status: record.status,
   plan: record.plan,
   userCount: record.userCount,
+  userLimit: record.userLimit,
+  seatLimitOverride: record.seatLimitOverride,
+  adminEmail: record.adminEmail,
   createdAt: record.createdAt.toISOString()
 });
 
 const toDetail = (record: TenantDetailRecord): TenantDetail => ({
   ...toSummary(record),
-  adminEmail: record.adminEmail,
   environments: record.environments.map((environment) => ({
     id: environment.id,
     name: environment.name,

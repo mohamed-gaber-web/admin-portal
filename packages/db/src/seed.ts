@@ -85,6 +85,16 @@ export interface DemoTenant {
    * the tenant boundary would return a set neither of them has.
    */
   modules: string[];
+  /**
+   * The package, and so the seat allowance.
+   *
+   * Stated rather than left to the column default, which is `trial` — three
+   * seats, and each demo tenant seeds exactly three users. A seeded tenant that
+   * is full the moment it exists would make every demo of the invite screen end
+   * in "seat limit reached", and would look like a bug rather than the intended
+   * state of the data.
+   */
+  plan: string;
   companies: DemoCompany[];
   roles: string[];
   users: DemoUser[];
@@ -125,6 +135,7 @@ export const DEMO_TENANTS: DemoTenant[] = [
     },
     /** On an enterprise plan, so everything except field service. */
     modules: ["van-sales", "warehouse", "analytics"],
+    plan: "enterprise",
     companies: [
       { name: "Acme Manufacturing", dataAreaId: "acmf" },
       { name: "Acme Logistics", dataAreaId: "acml" }
@@ -152,6 +163,8 @@ export const DEMO_TENANTS: DemoTenant[] = [
     },
     /** A smaller set, and intentionally not a subset of Acme's. */
     modules: ["warehouse", "field-service"],
+    /** A smaller package too, so the seat column shows two different numbers. */
+    plan: "starter",
     companies: [
       { name: "Globex Retail", dataAreaId: "glbr" },
       { name: "Globex Wholesale", dataAreaId: "glbw" }
@@ -244,10 +257,10 @@ async function seedWithClient(client: PoolClient): Promise<SeedSummary> {
   for (const tenant of DEMO_TENANTS) {
     const tenantId = await insertReturningId(
       client,
-      `INSERT INTO tenant (name, slug) VALUES ($1, $2)
-       ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+      `INSERT INTO tenant (name, slug, plan) VALUES ($1, $2, $3)
+       ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, plan = EXCLUDED.plan
        RETURNING id`,
-      [tenant.name, tenant.slug]
+      [tenant.name, tenant.slug, tenant.plan]
     );
     summary.tenants += 1;
 

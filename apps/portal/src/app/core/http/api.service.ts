@@ -3,6 +3,7 @@ import { Injectable, inject } from "@angular/core";
 import { Observable, map } from "rxjs";
 import { z } from "@growpath/contracts";
 import { environment } from "@env";
+import { ContractViolationError } from "./api-error";
 
 /** Query values a caller may pass; `undefined` entries are dropped. */
 export type QueryParams = Record<
@@ -114,7 +115,13 @@ function parse<T>(schema: z.ZodType<T>, body: unknown, path: string): T {
   const detail = result.error.issues
     .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
     .join("; ");
-  throw new Error(`Response from ${path} did not match its contract — ${detail}`);
+
+  // Logged as well as thrown. The thrown value reaches one screen's error
+  // state; the console line survives navigation, which is where somebody
+  // comparing two endpoints' failures actually looks.
+  console.error(`[contract] ${path}`, result.error.issues);
+
+  throw new ContractViolationError(path, detail);
 }
 
 function toParams(params?: QueryParams): HttpParams {

@@ -84,6 +84,32 @@ export class ApiError extends Error {
 }
 
 /**
+ * The API and the portal disagree about a response's shape.
+ *
+ * Not an `ApiError`: nothing failed over HTTP. The server answered 200 with a
+ * body the shared schema refuses, which in practice means one side is running
+ * code the other has not caught up with — most often a dev server holding a
+ * pre-bundled copy of `@growpath/contracts` from before the last rebuild.
+ *
+ * It carries its own class so `describeError` can show the detail rather than a
+ * translated generic. That is a deliberate exception to the rule that users see
+ * our wording: this message names the field and the endpoint, and it is the
+ * difference between "could not be loaded" — which sends somebody hunting
+ * through the network tab — and "seatLimitOverride: Unrecognized key", which
+ * names the fix. Its audience is whoever is running the portal, and in every
+ * environment where it can occur that is a developer.
+ */
+export class ContractViolationError extends Error {
+  constructor(
+    readonly path: string,
+    readonly detail: string
+  ) {
+    super(`Response from ${path} did not match its contract — ${detail}`);
+    this.name = "ContractViolationError";
+  }
+}
+
+/**
  * The sentence to show a user for any thrown value.
  *
  * Handles the three cases every subscribe callback otherwise re-implements: an
@@ -97,6 +123,12 @@ export function describeError(
 ): string {
   if (error instanceof ApiError) {
     return error.messageKey ? t(error.messageKey) : error.message;
+  }
+  // Shown verbatim rather than folded into the fallback. A contract mismatch
+  // hidden behind "could not be loaded" is a screen that looks broken for a
+  // reason nothing on it will ever state; see the note on the class.
+  if (error instanceof ContractViolationError) {
+    return error.message;
   }
   return t(fallbackKey);
 }

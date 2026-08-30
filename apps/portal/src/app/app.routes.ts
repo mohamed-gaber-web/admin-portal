@@ -170,6 +170,18 @@ export const routes: Routes = [
           )
       },
       {
+        /*
+         * The package catalogue. Under the platform guard like its siblings —
+         * what a package includes is an installation-wide fact, and the screen
+         * edits it for every tenant at once.
+         */
+        path: "platform/packages",
+        canActivate: [platformGuard],
+        title: "Packages · Grow Path Admin",
+        loadComponent: () =>
+          import("@features/platform/packages.page").then((m) => m.PlatformPackagesPage)
+      },
+      {
         path: "platform/users",
         canActivate: [platformGuard],
         title: "All users · Grow Path Admin",

@@ -8,11 +8,16 @@ import {
   listAuditEntriesForTenant,
   listPermissionCatalogue,
   listPlatformAdmins,
+  listPlans,
+  reissueTenantAdminInvitation,
   listTenantModules,
   listTenants,
   listUsers,
   setTenantModules,
   setTenantPlan,
+  setPlanUserLimit,
+  setTenantName,
+  setTenantSeatLimit,
   setTenantStatus,
   setUserStatus,
   withoutTenantScope,
@@ -21,6 +26,7 @@ import {
   type CatalogPermissionRecord,
   type ModuleRecord,
   type PageRequest,
+  type PlanRecord,
   type PlatformAdminRecord,
   type TenantDetail as TenantDetailRecord,
   type TenantPlan,
@@ -36,6 +42,8 @@ import {
   type CatalogPermission,
   type CreatePlatformAdminInput,
   type Page,
+  type Plan,
+  type ReissuedInvitation,
   type PlatformAdmin,
   type PlatformAdminCreated,
   type TenantDetail,
@@ -72,12 +80,14 @@ const toTenantSummary = (record: TenantSummaryRecord): TenantSummary => ({
   status: record.status,
   plan: record.plan,
   userCount: record.userCount,
+  userLimit: record.userLimit,
+  seatLimitOverride: record.seatLimitOverride,
+  adminEmail: record.adminEmail,
   createdAt: record.createdAt.toISOString()
 });
 
 const toTenantDetail = (record: TenantDetailRecord): TenantDetail => ({
   ...toTenantSummary(record),
-  adminEmail: record.adminEmail,
   environments: record.environments.map((environment) => ({
     id: environment.id,
     name: environment.name,
@@ -141,6 +151,13 @@ const toPlatformAdmin = (record: PlatformAdminRecord): PlatformAdmin => ({
   status: record.status,
   lastLoginAt: record.lastLoginAt?.toISOString() ?? null,
   createdAt: record.createdAt.toISOString()
+});
+
+const toPlan = (record: PlanRecord): Plan => ({
+  key: record.key,
+  description: record.description,
+  userLimit: record.userLimit,
+  tenantCount: record.tenantCount
 });
 
 const toCatalogPermission = (record: CatalogPermissionRecord): CatalogPermission => ({
@@ -329,6 +346,100 @@ export class PlatformService {
     );
   }
 
+  /**
+   * Issues a fresh invitation for a tenant's administrator.
+   *
+   * The remedy for a tenant stuck at `pending`. Returns null when the tenant
+   * does not exist or holds nobody to invite; `UserAlreadyActiveError` escapes
+   * to the controller, which turns it into a 409 — an admin who already has a
+   * password does not need an invitation, and reissuing one would be a password
+   * reset wearing the wrong name.
+   */
+  async reissueAdminInvitation(
+    id: string,
+    actor: AuditActor
+  ): Promise<ReissuedInvitation | null> {
+    return withoutTenantScope(
+      this.pool,
+      {
+        reason:
+          "Platform administration: reissuing a tenant's admin invitation, which cannot be done from inside a tenant nobody can sign in to."
+      },
+      async (client) => {
+        const result = await reissueTenantAdminInvitation(client, {
+          tenantId: id,
+          actor
+        });
+        if (!result) return null;
+
+        return {
+          email: result.email,
+          invitation: {
+            id: result.invitation.id,
+            expiresAt: result.invitation.expiresAt.toISOString(),
+            token: result.invitation.token
+          }
+        };
+      }
+    );
+  }
+
+  /**
+   * Renames a tenant.
+   *
+   * Under `platform.tenant.write` rather than `platform.plan.write`: a name is
+   * an operational attribute like the lifecycle state, not a commercial one
+   * like the package or the seat allowance. An operator who may suspend a
+   * tenant may also correct its spelling.
+   */
+  async setTenantName(
+    id: string,
+    name: string,
+    actor: AuditActor
+  ): Promise<TenantDetail | null> {
+    return withoutTenantScope(
+      this.pool,
+      { reason: "Platform administration: renaming any tenant." },
+      async (client) => {
+        const result = await setTenantName(client, { tenantId: id, name, actor });
+        if (!result) return null;
+
+        const tenant = await findTenantDetail(client, id);
+        return tenant ? toTenantDetail(tenant) : null;
+      }
+    );
+  }
+
+  /**
+   * Sets or clears a tenant's negotiated seat allowance.
+   *
+   * Returns the whole tenant rather than the number alone, matching
+   * `setTenantPlan`: the screen then renders what the server holds instead of
+   * patching its own copy, which is how a screen starts quietly disagreeing with
+   * the database.
+   */
+  async setTenantSeats(
+    id: string,
+    seatLimit: number | null,
+    actor: AuditActor
+  ): Promise<TenantDetail | null> {
+    return withoutTenantScope(
+      this.pool,
+      { reason: "Platform administration: setting any tenant's seat allowance." },
+      async (client) => {
+        const result = await setTenantSeatLimit(client, {
+          tenantId: id,
+          seatLimit,
+          actor
+        });
+        if (!result) return null;
+
+        const tenant = await findTenantDetail(client, id);
+        return tenant ? toTenantDetail(tenant) : null;
+      }
+    );
+  }
+
   /** The module catalogue, marked with what this tenant holds. */
   async listTenantModules(id: string): Promise<TenantModule[] | null> {
     return withoutTenantScope(
@@ -432,5 +543,60 @@ export class PlatformService {
       (client) => listPermissionCatalogue(client)
     );
     return records.map(toCatalogPermission);
+  }
+
+  /**
+   * The package catalogue, with the seats each package includes.
+   *
+   * Unscoped like the rest of this service, though `plan` is a global table with
+   * no row level security on it and would read the same from inside a tenant
+   * session. Routed through `withoutTenantScope` anyway so the bypass is logged
+   * with the request's correlation ID rather than silently unnecessary — a
+   * platform route that quietly did not need the wrapper is one somebody later
+   * copies for a route that does.
+   */
+  /**
+   * Changes how many users a package includes, for every tenant on it.
+   *
+   * Returns the whole catalogue rather than the one package, matching
+   * `setTenantSeats` returning the whole tenant: the screen then renders what
+   * the server holds instead of patching its own copy, and the tenant counts
+   * beside the other packages stay honest.
+   *
+   * Null means the key is not in the catalogue — the controller turns that into
+   * a 404. A non-positive figure never reaches here; the schema rejects it
+   * first, and the check constraint would refuse it after that.
+   */
+  async setPlanUserLimit(
+    key: string,
+    userLimit: number,
+    actor: AuditActor
+  ): Promise<Plan[] | null> {
+    return withoutTenantScope(
+      this.pool,
+      {
+        reason:
+          "Platform administration: changing what a package includes, which reaches every tenant on it."
+      },
+      async (client) => {
+        const result = await setPlanUserLimit(client, { key, userLimit, actor });
+        if (!result) return null;
+
+        const records = await listPlans(client);
+        return records.map(toPlan);
+      }
+    );
+  }
+
+  async listPlans(): Promise<Plan[]> {
+    const records = await withoutTenantScope(
+      this.pool,
+      {
+        reason:
+          "Platform administration: the package catalogue is global, and the plan picker renders it for any tenant."
+      },
+      (client) => listPlans(client)
+    );
+    return records.map(toPlan);
   }
 }

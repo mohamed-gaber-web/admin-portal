@@ -294,3 +294,76 @@ async function grantPlatformRolePermissions(
     [tenantId, roleId, PLATFORM_PERMISSION_PREFIX]
   );
 }
+
+/**
+ * Issues a fresh invitation for a tenant's administrator.
+ *
+ * The operator's remedy for a tenant stuck at `pending`. That status is derived
+ * from "nobody in this tenant has signed in yet", so no lifecycle transition can
+ * clear it — the only thing that does is somebody accepting an invitation, and
+ * until now there was no way for an operator to produce one. `POST
+ * /users/invitations` is tenant-scoped and needs `user.write` *inside* the
+ * tenant, which is precisely the permission nobody there can exercise yet.
+ *
+ * Lives here rather than in `tenant-administration`, which is where the same
+ * admin-finding expression already sits, because that module cannot import
+ * `invitations` without closing the cycle
+ * `tenant-administration → invitations → modules → tenant-administration`.
+ *
+ * ### Who gets the invitation
+ *
+ * A holder of the `admin` role, and the earliest user when nobody holds it —
+ * the same rule the detail screen's `adminEmail` uses, so an operator invites
+ * the person the screen showed them. The fallback matters: a tenant whose only
+ * admin was demoted is exactly the tenant somebody is trying to repair.
+ *
+ * ### What it refuses
+ *
+ * An already-active administrator, via `issueInvitation`'s own
+ * `UserAlreadyActiveError`. Re-inviting somebody who has a password is a
+ * password reset wearing the wrong name, and a way to take over an account by
+ * inviting it — the check lives at the source rather than here so that every
+ * caller inherits it.
+ *
+ * Returns null when the tenant does not exist or holds no users at all, which
+ * provisioning does not produce.
+ */
+export async function reissueTenantAdminInvitation(
+  db: Queryable,
+  input: { tenantId: string; actor: AuditActor; ttlHours?: number }
+): Promise<{ email: string; invitation: IssuedInvitation } | null> {
+  const admin = await db.query<{ email: string }>(
+    `SELECT coalesce(
+              (SELECT min(admin_user.email)
+                 FROM "user" admin_user
+                 JOIN user_role ur ON ur.user_id = admin_user.id
+                 JOIN role r ON r.id = ur.role_id
+                WHERE admin_user.tenant_id = t.id AND r.name = 'admin'),
+              (SELECT first.email FROM "user" first
+                WHERE first.tenant_id = t.id
+                ORDER BY first.created_at, first.id
+                LIMIT 1)
+            ) AS email
+       FROM tenant t
+      WHERE t.id = $1`,
+    [input.tenantId]
+  );
+
+  const email = admin.rows[0]?.email;
+  if (!email) return null;
+
+  const invitation = await issueInvitation(db, {
+    tenantId: input.tenantId,
+    email,
+    actor: input.actor,
+    // No inviting user: the operator is a platform administrator, and their row
+    // lives in the platform tenant rather than this one. `invited_by` points at
+    // a user in the same tenant, so naming them would be a cross-tenant
+    // reference the column is not allowed to hold. The actor label on the audit
+    // entry is what records who did it.
+    invitedBy: null,
+    ttlHours: input.ttlHours
+  });
+
+  return { email, invitation };
+}

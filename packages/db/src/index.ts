@@ -17,6 +17,7 @@ export {
   isPlatformPermissionKey,
   ensurePlatformAdmin,
   listPlatformAdmins,
+  reissueTenantAdminInvitation,
   listPermissionCatalogue,
   PlatformTenantMissingError,
   PLATFORM_TENANT_SLUG,
@@ -29,6 +30,7 @@ export {
 } from "./platform";
 export {
   listTenants,
+  setTenantName,
   findTenantDetail,
   setTenantStatus,
   isUuid,
@@ -47,9 +49,17 @@ export {
   listOwnModules,
   setTenantModules,
   setTenantPlan,
+  setTenantSeatLimit,
+  setPlanUserLimit,
+  listPlans,
+  findSeatUsage,
+  assertSeatAvailable,
+  SeatLimitReachedError,
   UNSUBSCRIBED_PLAN,
   type ModuleKey,
   type ModuleRecord,
+  type PlanRecord,
+  type SeatUsage,
   type SetTenantModulesInput,
   type SetTenantPlanInput
 } from "./modules";

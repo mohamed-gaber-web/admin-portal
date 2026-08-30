@@ -171,7 +171,11 @@ describe.skipIf(!hasDb)("administration responses match their contracts", () => 
     // The admin accepted their invitation during seeding, so the tenant has an
     // active user and is therefore active rather than pending.
     expect(seeded!.status).toBe("active");
-    expect(seeded!.plan).toBe("trial");
+    // The column default, which the fixture does not override. `growth` since
+    // the default-plan-growth migration — a new tenant starts with 25 seats, so
+    // that provisioning one does not produce a workspace that is full after two
+    // colleagues.
+    expect(seeded!.plan).toBe("growth");
     expect(seeded!.userCount).toBe(1);
   });
 

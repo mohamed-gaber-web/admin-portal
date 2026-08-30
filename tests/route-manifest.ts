@@ -522,6 +522,40 @@ export const DECLARED_ROUTES: DeclaredRoute[] = [
     audits: ["role.assigned", "invitation.issued"]
   },
   {
+    method: "POST",
+    path: "/platform/tenants/:id/admin-invitation",
+    visibility: "platform",
+    note: "Issues a fresh invitation for a tenant's administrator — the operator's only remedy for a tenant stuck at pending. That status is derived from \"nobody here has signed in yet\", so no lifecycle transition clears it, and POST /users/invitations needs user.write inside the tenant, which is exactly the permission nobody there can exercise yet. Refuses an administrator who already has a password (409): reissuing there would be a password reset wearing the wrong name, and a way to take over an account by inviting it.",
+    audits: ["invitation.issued"]
+  },
+  {
+    method: "PATCH",
+    path: "/platform/tenants/:id",
+    visibility: "platform",
+    note: "Renames a tenant. Name only — the slug is identity: people sign in with it and every invitation link already sent carries it, so changing it would silently invalidate all of them with no way for the tenant to tell its own people. Under platform.tenant.write, the same key as the lifecycle transitions, because renaming is an operational correction rather than a commercial decision.",
+    audits: ["tenant.renamed"]
+  },
+  {
+    method: "PATCH",
+    path: "/platform/tenants/:id/seats",
+    visibility: "platform",
+    note: "Sets or clears a tenant's negotiated seat allowance, overriding what its package includes. Under platform.plan.write rather than platform.tenant.write because it is a commercial decision about what a customer may have, the same kind as moving them between packages — not an operational one like suspending them. null clears the override and returns the tenant to its package's number.",
+    audits: ["tenant.seats_changed"]
+  },
+  {
+    method: "GET",
+    path: "/platform/plans",
+    visibility: "platform",
+    note: "The package catalogue with the seats each package includes. Read-only: nothing in the portal edits the numbers yet, and the operator screens need them to render a plan picker that says what each package actually buys. Gated on platform.tenant.read rather than a key of its own — it is the same catalogue every plan badge is already drawn from."
+  },
+  {
+    method: "PATCH",
+    path: "/platform/plans/:key",
+    visibility: "platform",
+    note: "Changes how many users a package includes, for every tenant on it that has not negotiated its own figure. Under platform.plan.write, the same key that moves a tenant between packages and sets a tenant's seat override — all three decide what a customer may have. Keyed by plan key rather than id because the key is what tenant rows point at and what an operator reads on screen. Audited against the platform tenant, since the plan table belongs to no tenant.",
+    audits: ["plan.seats_changed"]
+  },
+  {
     method: "GET",
     path: "/platform/permissions",
     visibility: "platform",

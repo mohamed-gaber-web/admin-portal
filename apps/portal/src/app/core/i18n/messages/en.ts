@@ -60,6 +60,7 @@ export const en = {
   "nav.platform": "Platform",
   "nav.allTenants": "All tenants",
   "nav.allUsers": "All users",
+  "nav.packages": "Packages",
   "nav.superAdmins": "Super administrators",
   "nav.permissions": "Permissions",
   "nav.configuration": "Configuration",
@@ -237,6 +238,7 @@ export const en = {
   "tenants.columnTenant": "Tenant",
   "tenants.columnPlan": "Plan",
   "tenants.columnUsers": "Users",
+  "tenants.seatsUsed": "{used} / {limit}",
   "tenants.columnCreated": "Created",
   "tenants.emptyTitle": "No tenants yet",
   "tenants.emptyBody": "Provision the first workspace to get started.",
@@ -374,6 +376,62 @@ export const en = {
     "Recorded in the audit log as an unsubscription, which is the only thing that distinguishes it from a downgrade afterwards.",
   "subscription.unsubscribeConfirm": "Unsubscribe",
   "subscription.unsubscribed": "{name} has been unsubscribed.",
+  // Seats — what the package includes, and how many are taken.
+  "subscription.seats": "Seats",
+  "subscription.seatsUsed": "{used} of {limit} used",
+  "subscription.planSeats": "{count} users",
+  "subscription.downgradeTitle": "This package has fewer seats",
+  // Negotiated seat allowance, per tenant.
+  "seats.overrideLabel": "Seats for this tenant",
+  "seats.save": "Save seats",
+  "seats.usePackage": "Use package default",
+  "seats.inheriting": "Inheriting {limit} from the package.",
+  "seats.negotiated": "Negotiated: {limit} seats for this tenant.",
+  "seats.belowUsage": "This tenant already has {used} users, more than the {limit} you are setting. Nobody is removed, but no new user can be invited until they are back within it.",
+  "seats.savedToast": "Seat allowance set to {limit}.",
+  "seats.clearedToast": "Back on the package default of {limit}.",
+  "seats.failed": "The seat allowance could not be changed.",
+  "subscription.downgradeBody":
+    "This tenant has {used} users, and {plan} includes {limit}. The change is allowed, but nobody new can be invited until they are back within the allowance.",
+
+  // Creating a tenant: the package it starts on.
+  "createTenant.plan": "Package",
+  "createTenant.planHint": "Sets how many users the tenant may have. It can be changed later.",
+  "createTenant.planSeats": "{count} users",
+  // Renaming a tenant, and its lifecycle, from the detail screen.
+  "tenantDetail.pendingTitle": "Waiting for the first sign-in",
+  "tenantDetail.pendingBody": "This tenant stays pending until someone signs in for the first time. {email} was invited but has not accepted yet — the status becomes active by itself once they set their password. Reactivating does not change it, because nothing here is suspended.",
+  "tenantDetail.resendInvite": "Send a new invitation",
+  "tenantDetail.inviteFor": "New invitation for {email}",
+  "tenantDetail.inviteExpires": "Expires {date}. This link is shown once — copy it now.",
+  "tenantDetail.resendFailed": "The invitation could not be issued.",
+  "tenantDetail.rename": "Rename",
+  "tenantDetail.renameSave": "Save name",
+  "tenantDetail.renameTitle": "Rename tenant",
+  "tenantDetail.renameSubtitle": "Changes the display name only. Everything else stays as it is.",
+  "tenantDetail.slugFixed": "The identifier cannot be changed — people sign in with it, and invitations already sent carry it.",
+  "tenantDetail.renamed": "Renamed to {name}.",
+  "tenantDetail.renameFailed": "The tenant could not be renamed.",
+
+  // Package catalogue — the seats each package includes (platform screen).
+  "packages.title": "Packages",
+  "packages.subtitle": "What each package includes, and how many tenants hold it.",
+  "packages.catalogueTitle": "Seats per package",
+  "packages.catalogueBody":
+    "Changing a number here moves every tenant on that package that has no seat allowance of its own. Tenants given a negotiated figure keep it.",
+  "packages.columnPackage": "Package",
+  "packages.columnSeats": "Seats included",
+  "packages.columnTenants": "Tenants",
+  "packages.columnActions": "Actions",
+  "packages.seatsFor": "Seats included in {plan}",
+  "packages.save": "Save",
+  "packages.savedToast": "{plan} now includes {limit} users.",
+  "packages.saveFailed": "The package could not be updated.",
+  "packages.loadFailed": "Packages could not be loaded",
+  "packages.loadError": "The package catalogue could not be loaded.",
+  "packages.loadingLabel": "Loading packages",
+  "packages.reachNote":
+    "Takes effect immediately. A tenant already over a reduced allowance keeps every user it has — it simply cannot add another until it is back within the number.",
 
   // Module entitlements (US-072)
   "modules.title": "Modules",

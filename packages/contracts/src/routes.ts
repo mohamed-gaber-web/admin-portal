@@ -207,7 +207,57 @@ export const API_ROUTES = {
    * into one route would make "cancel their subscription" and "cut off their
    * access" the same button.
    */
+  /**
+   * A tenant's editable details — its name.
+   *
+   * The bare resource path, unlike its siblings which each name a facet
+   * (`/plan`, `/seats`, `/status`). Those are separate because each is a
+   * separate decision with its own permission; this one is the tenant's own
+   * attributes, and there is currently one of them.
+   */
+  platformTenantUpdate: "/platform/tenants/:id",
+  /**
+   * A fresh invitation for a tenant's administrator.
+   *
+   * POST because it creates something — a new token, invalidating any previous
+   * one. The operator's only remedy for a tenant stuck at `pending`: that status
+   * means nobody there has signed in yet, and `POST /users/invitations` needs
+   * `user.write` *inside* the tenant, which is exactly the permission nobody
+   * there can exercise yet.
+   */
+  platformTenantAdminInvitation: "/platform/tenants/:id/admin-invitation",
   platformTenantPlan: "/platform/tenants/:id/plan",
+  /**
+   * The package catalogue, with the seats each package includes.
+   *
+   * Read-only, like `platformPermissions`, and for a weaker version of the same
+   * reason: the seat numbers are an `UPDATE` away rather than fixed, but nothing
+   * in the portal edits them yet. What this exists for is the plan picker — an
+   * operator choosing between packages has to be able to see that Growth means
+   * 25 users, and hard-coding that in the client would put the number in two
+   * places and let them disagree.
+   */
+  platformPlans: "/platform/plans",
+  /**
+   * One package's seat count.
+   *
+   * Keyed by `key` rather than by id, unlike every other resource route here.
+   * The key is what a tenant row points at, what the foreign key cascades on,
+   * and what an operator reads on screen — the uuid is an implementation detail
+   * no caller ever holds. A route keyed by something nobody can name would force
+   * a list fetch before every edit.
+   */
+  platformPlan: "/platform/plans/:key",
+  /**
+   * A tenant's negotiated seat allowance (`null` to inherit its package).
+   *
+   * Separate from `platformTenantPlan` because the two are separate decisions
+   * that happen at separate times: a plan change is what a customer buys, and a
+   * seat override is a concession on top of it. Folding them into one body would
+   * mean an operator could not adjust seats without restating the plan, and a
+   * retry that restated a stale plan would undo an upgrade.
+   */
+  platformTenantSeats: "/platform/tenants/:id/seats",
   /** Which modules a tenant is entitled to. The whole set, replaced at once. */
   platformTenantModules: "/platform/tenants/:id/modules",
 

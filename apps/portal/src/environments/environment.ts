@@ -36,27 +36,17 @@ export const environment = {
   /**
    * Screens and controls that can be switched off without removing them.
    *
-   * A flag rather than deleted code, and the distinction matters: what is off
-   * here is off because of a *product* decision that may be reversed, not
-   * because it was a mistake. Deleting the create-tenant dialog would make
-   * turning it back on a rewrite; leaving it behind a flag makes it one line.
+   * Empty. `tenantCreation` used to live here, off, because tenants were
+   * provisioned outside the portal. That product decision has been reversed:
+   * the create-tenant button on the operator console is now drawn for whoever
+   * holds `platform.tenant.write`, which is the question actually being asked —
+   * a build flag could only say whether *anybody* may create a tenant, never
+   * whether *this* operator may.
    *
-   * Nothing here is a security boundary. Every one of these controls calls an
-   * endpoint that checks permissions itself — a user who edits the built bundle
-   * gets the button back and the same 403 they would have got anyway.
+   * Nothing that belongs here is a security boundary. Every control it would
+   * hide calls an endpoint that checks permissions itself.
    */
-  features: {
-    /**
-     * Off: tenants are provisioned outside the portal.
-     *
-     * `POST /tenants` still exists and still works for a platform administrator.
-     * What is hidden is the button — new customers are onboarded by whoever
-     * operates the installation, and a self-service dialog on the operator
-     * console invited a tenant to be created by whoever happened to be looking
-     * at the screen.
-     */
-    tenantCreation: false
-  }
+  features: {}
 } as const;
 
 export type Environment = typeof environment;

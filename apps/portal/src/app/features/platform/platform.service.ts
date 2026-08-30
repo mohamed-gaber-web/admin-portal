@@ -6,7 +6,9 @@ import {
   catalogPermissionListSchema,
   platformAdminCreatedSchema,
   platformAdminListSchema,
+  planListSchema,
   provisionedTenantSchema,
+  reissuedInvitationSchema,
   tenantDetailSchema,
   tenantModuleListSchema,
   tenantPageSchema,
@@ -19,6 +21,7 @@ import {
   type PlatformAdmin,
   type PlatformAdminCreated,
   type ProvisionedTenant,
+  type ReissuedInvitation,
   type TenantModule,
   type TenantPlan,
   z
@@ -29,6 +32,7 @@ import type {
   ActivityEntry,
   Page,
   PageQuery,
+  Plan,
   TenantDetail,
   TenantStatus,
   TenantSummary,
@@ -192,6 +196,51 @@ export class PlatformService {
     );
   }
 
+  /**
+   * Issues a fresh invitation for a tenant's administrator.
+   *
+   * The remedy for a tenant stuck at `pending`. The token comes back exactly
+   * once — it is stored only as a digest — so a link that is not copied when
+   * this resolves is reissued rather than looked up.
+   */
+  reissueAdminInvitation(id: string): Observable<ReissuedInvitation> {
+    return this.api.postValidated(
+      pathFor(API_ROUTES.platformTenantAdminInvitation, { id }),
+      {},
+      reissuedInvitationSchema
+    );
+  }
+
+  /**
+   * Renames a tenant.
+   *
+   * Name only — the slug is identity, and every invitation link already sent
+   * carries it. Returns the whole tenant so the screen renders what the server
+   * holds rather than patching its own copy.
+   */
+  updateTenant(id: string, name: string): Observable<TenantDetail> {
+    return this.api.patchValidated(
+      pathFor(API_ROUTES.platformTenantUpdate, { id }),
+      { name },
+      tenantDetailSchema
+    );
+  }
+
+  /**
+   * Sets or clears a tenant's negotiated seat allowance.
+   *
+   * `null` is the reset — it returns the tenant to its package's number — and is
+   * sent as a value rather than by omitting the field, because "put them back on
+   * their plan" is a decision an operator makes, not an argument they forgot.
+   */
+  setTenantSeats(id: string, seatLimit: number | null): Observable<TenantDetail> {
+    return this.api.patchValidated(
+      pathFor(API_ROUTES.platformTenantSeats, { id }),
+      { seatLimit },
+      tenantDetailSchema
+    );
+  }
+
   /** The module catalogue, marked with what this tenant holds. */
   listTenantModules(id: string): Observable<TenantModule[]> {
     return this.api.getValidated(
@@ -238,6 +287,36 @@ export class PlatformService {
     return this.api.getValidated(
       API_ROUTES.platformPermissions,
       catalogPermissionListSchema
+    );
+  }
+
+  /**
+   * Every package on offer, with the seats each includes.
+   *
+   * Fetched rather than read from `TENANT_PLANS`, which knows the four keys and
+   * nothing about what they buy. The seat numbers live in the `plan` table
+   * precisely so an installation can change them without a release, and a
+   * hard-coded copy here would be the thing that then displayed the old ones.
+   *
+   * Read-only: nothing in the portal edits the catalogue, and there is no
+   * endpoint that would.
+   */
+  listPlans(): Observable<Plan[]> {
+    return this.api.getValidated(API_ROUTES.platformPlans, planListSchema);
+  }
+
+  /**
+   * Changes how many users a package includes, for every tenant on it.
+   *
+   * Returns the whole catalogue rather than the one package, because the tenant
+   * counts on the other rows are part of what the screen is showing and a
+   * partial update would leave them stale beside a number that just moved.
+   */
+  setPlanUserLimit(key: string, userLimit: number): Observable<Plan[]> {
+    return this.api.patchValidated(
+      pathFor(API_ROUTES.platformPlan, { key }),
+      { userLimit },
+      planListSchema
     );
   }
 }

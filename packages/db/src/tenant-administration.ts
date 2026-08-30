@@ -29,6 +29,18 @@ export interface TenantSummary {
   status: TenantStatus;
   plan: TenantPlan;
   userCount: number;
+  /**
+   * Seats the tenant's package includes.
+   *
+   * Joined from `plan` rather than stored on the tenant: the allowance belongs
+   * to the package, and a copy on the tenant row would be one an operator could
+   * move a customer's package without updating.
+   */
+  userLimit: number;
+  /** The tenant's own negotiated allowance, or null when it inherits its package. */
+  seatLimitOverride: number | null;
+  /** The tenant's admin address. Empty when the tenant has no users at all. */
+  adminEmail: string;
   createdAt: Date;
 }
 
@@ -61,7 +73,6 @@ export interface TenantEnvironmentRecord {
 export type ConnectionState = "connected" | "failing" | "not_configured";
 
 export interface TenantDetail extends TenantSummary {
-  adminEmail: string;
   environments: TenantEnvironmentRecord[];
 }
 
@@ -85,6 +96,42 @@ const STATUS_EXPRESSION = `
     ELSE 'active'
   END`;
 
+/**
+ * The address an operator needs when a tenant is stuck.
+ *
+ * Prefers a holder of the admin role, and falls back to the earliest user when
+ * nobody holds it. The fallback is the point: a tenant whose last admin was
+ * demoted is exactly the tenant someone is looking at a screen to repair, and
+ * answering with an empty string there would withhold the one field that helps.
+ *
+ * Two correlated subqueries rather than joins to `user_role` and `role`, which
+ * is what the detail query used to do. Those joins multiply the result by each
+ * user's role count, and the same statement does `count(u.id)` for the user
+ * total — so a tenant where one person held two roles reported twice as many
+ * users as it had. Nobody holds two roles today, which is why it had not
+ * surfaced; the seat limit now reads that count, so it would have.
+ */
+const ADMIN_EMAIL_EXPRESSION = `
+  coalesce(
+    (SELECT min(admin_user.email)
+       FROM "user" admin_user
+       JOIN user_role ur ON ur.user_id = admin_user.id
+       JOIN role r ON r.id = ur.role_id
+      WHERE admin_user.tenant_id = t.id AND r.name = 'admin'),
+    (SELECT first.email FROM "user" first
+      WHERE first.tenant_id = t.id
+      ORDER BY first.created_at, first.id
+      LIMIT 1)
+  )`;
+
+/**
+ * Seats the tenant may hold: its own negotiated figure, or its package's.
+ *
+ * Computed at every read rather than stored, so raising a package's allowance
+ * lifts every tenant that inherits it and leaves the negotiated ones alone.
+ */
+const SEAT_LIMIT_EXPRESSION = `coalesce(t.seat_limit, p.user_limit)`;
+
 /** Sortable columns, whitelisted — `sort` arrives on a query string. */
 const TENANT_SORT_COLUMNS: Record<string, string> = {
   name: "t.name",
@@ -102,6 +149,9 @@ interface TenantSummaryRow {
   status: TenantStatus;
   plan: TenantPlan;
   user_count: string;
+  user_limit: string;
+  seat_limit_override: number | null;
+  admin_email: string | null;
   created_at: Date;
   total_count: string;
 }
@@ -113,6 +163,9 @@ const toSummary = (row: TenantSummaryRow): TenantSummary => ({
   status: row.status,
   plan: row.plan,
   userCount: Number(row.user_count),
+  userLimit: Number(row.user_limit),
+  seatLimitOverride: row.seat_limit_override === null ? null : Number(row.seat_limit_override),
+  adminEmail: row.admin_email ?? "",
   createdAt: row.created_at
 });
 
@@ -146,14 +199,18 @@ export async function listTenants(
 
   const res = await db.query<TenantSummaryRow>(
     `SELECT t.id, t.name, t.slug, t.plan, t.created_at,
+            t.seat_limit AS seat_limit_override,
+            ${SEAT_LIMIT_EXPRESSION} AS user_limit,
+            ${ADMIN_EMAIL_EXPRESSION} AS admin_email,
             ${STATUS_EXPRESSION} AS status,
             count(u.id) AS user_count,
             count(*) OVER () AS total_count
      FROM tenant t
+     JOIN plan p ON p.key = t.plan
      LEFT JOIN "user" u ON u.tenant_id = t.id
      WHERE ($1::text IS NULL OR t.name ILIKE $1 ESCAPE '\\' OR t.slug ILIKE $1 ESCAPE '\\')
        AND ($4::boolean IS NOT TRUE OR NOT t.is_platform)
-     GROUP BY t.id
+     GROUP BY t.id, p.user_limit
      ${orderByClause(request, TENANT_SORT_COLUMNS, "name")}
      LIMIT $2 OFFSET $3`,
     [like, limit, offset, options.excludePlatform ?? false]
@@ -162,9 +219,7 @@ export async function listTenants(
   return toPage(res.rows, request, toSummary);
 }
 
-interface TenantDetailRow extends Omit<TenantSummaryRow, "total_count"> {
-  admin_email: string | null;
-}
+type TenantDetailRow = Omit<TenantSummaryRow, "total_count">;
 
 /**
  * One tenant with its environments and their legal entities.
@@ -185,30 +240,16 @@ export async function findTenantDetail(
 
   const res = await db.query<TenantDetailRow>(
     `SELECT t.id, t.name, t.slug, t.plan, t.created_at,
+            t.seat_limit AS seat_limit_override,
+            ${SEAT_LIMIT_EXPRESSION} AS user_limit,
+            ${ADMIN_EMAIL_EXPRESSION} AS admin_email,
             ${STATUS_EXPRESSION} AS status,
-            count(u.id) AS user_count,
-            /*
-             * The address an operator needs when a tenant is stuck.
-             *
-             * Prefers a holder of the admin role, and falls back to the
-             * earliest user when nobody holds it. The fallback is the point: a
-             * tenant whose last admin was demoted is exactly the tenant someone
-             * is looking at this screen to repair, and answering with an empty
-             * string there would withhold the one field that helps.
-             */
-            coalesce(
-              min(u.email) FILTER (WHERE r.name = 'admin'),
-              (SELECT first.email FROM "user" first
-                WHERE first.tenant_id = t.id
-                ORDER BY first.created_at, first.id
-                LIMIT 1)
-            ) AS admin_email
+            count(u.id) AS user_count
      FROM tenant t
+     JOIN plan p ON p.key = t.plan
      LEFT JOIN "user" u ON u.tenant_id = t.id
-     LEFT JOIN user_role ur ON ur.user_id = u.id
-     LEFT JOIN role r ON r.id = ur.role_id
      WHERE t.id = $1
-     GROUP BY t.id`,
+     GROUP BY t.id, p.user_limit`,
     [tenantId]
   );
 
@@ -219,7 +260,6 @@ export async function findTenantDetail(
 
   return {
     ...toSummary({ ...row, total_count: "1" }),
-    adminEmail: row.admin_email ?? "",
     environments
   };
 }
@@ -391,4 +431,57 @@ const UUID_PATTERN =
  */
 export function isUuid(value: string): boolean {
   return UUID_PATTERN.test(value);
+}
+
+/**
+ * Renames a tenant.
+ *
+ * Name only — see `updateTenantSchema` for why the slug is not editable. The
+ * name is display text: it appears on screens and in the audit log, and nothing
+ * authenticates or routes by it, so changing it is safe in a way changing the
+ * slug is not.
+ *
+ * Trims, and refuses a name that is empty once trimmed. A tenant called " "
+ * renders as a blank row that an operator cannot click on with any confidence,
+ * and the schema's `min(1)` passes a string of spaces.
+ *
+ * Returns null for an unknown tenant, and `changed: false` when the name
+ * already matches — so a retried request writes no second audit entry.
+ */
+export async function setTenantName(
+  db: Queryable,
+  input: { tenantId: string; name: string; actor: AuditActor }
+): Promise<{ name: string; changed: boolean } | null> {
+  if (!isUuid(input.tenantId)) return null;
+
+  const name = input.name.trim();
+  if (name === "") return null;
+
+  const existing = await db.query<{ name: string }>(
+    "SELECT name FROM tenant WHERE id = $1",
+    [input.tenantId]
+  );
+  const current = existing.rows[0];
+  if (!current) return null;
+
+  if (current.name === name) {
+    return { name, changed: false };
+  }
+
+  await db.query("UPDATE tenant SET name = $2, updated_at = now() WHERE id = $1", [
+    input.tenantId,
+    name
+  ]);
+
+  await recordAuditEntry(db, {
+    tenantId: input.tenantId,
+    action: "tenant.renamed",
+    entityType: "tenant",
+    entityId: input.tenantId,
+    actor: input.actor,
+    before: { name: current.name },
+    after: { name }
+  });
+
+  return { name, changed: true };
 }

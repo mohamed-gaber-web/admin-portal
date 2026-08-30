@@ -56,8 +56,31 @@ describe("US-063 AC1 — a tenant detail screen, reachable from the list", () =>
     // tenant on the second visit.
     const page = read("features/tenants/tenant-detail.page.ts");
     expect(page).toMatch(
-      /effect\(\s*\(\) => \{[\s\S]{0,160}this\.id\(\);[\s\S]{0,60}this\.load\(\)/
+      /effect\(\s*\(\) => \{[\s\S]{0,160}this\.id\(\);[\s\S]{0,900}this\.load\(\)/
     );
+  });
+
+  it("does not let the reload re-trigger its own effect", () => {
+    /*
+     * `load()` opens with `state.set(asyncLoading(state().data))` — it reads the
+     * signal it then writes. Called bare inside the effect, that read becomes a
+     * dependency and the write re-triggers the effect that performed it, which
+     * is an unbounded loop: it pins a core and takes the tab down. Every detail
+     * screen shipped with it, so clicking any tenant or user crashed the browser.
+     *
+     * `allowSignalWrites` permits the write; it does not break the cycle.
+     * `untracked` does, and the assertion is that the call stays inside it.
+     */
+    for (const file of [
+      "features/tenants/tenant-detail.page.ts",
+      "features/users/user-detail.page.ts",
+      "features/platform/platform-tenant-detail.page.ts",
+      "features/platform/components/tenant-modules.component.ts"
+    ]) {
+      expect(read(file), `${file} would loop forever and crash the tab`).toMatch(
+        /untracked\(\(\) => this\.load\(\)\)/
+      );
+    }
   });
 
   it("declares the signal write the reload performs", () => {

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from "@angular/core";
 import { RouterLink } from "@angular/router";
-import { environment } from "@env";
+import { SessionStore } from "@core/auth/session.store";
 import { describeError } from "@core/http/api-error";
 import { I18nService, injectT } from "@core/i18n/i18n.service";
 import {
@@ -81,7 +81,7 @@ import { PlatformService } from "./platform.service";
       [title]="t('platformTenants.title')"
       [description]="t('platformTenants.subtitle')"
     >
-      @if (canCreateTenant) {
+      @if (canManageTenants()) {
         <button uiButton (click)="dialogOpen.set(true)">
           <ui-icon name="plus" [size]="16" />
           {{ t("tenants.new") }}
@@ -149,8 +149,8 @@ import { PlatformService } from "./platform.service";
               </ui-empty-state>
             } @else {
               <!--
-                The description changes with the flag, rather than only the
-                button disappearing. An empty list under a heading that offers
+                The description changes with the permission, rather than only
+                the button disappearing. An empty list under a heading that offers
                 no way forward reads as a broken screen; saying where tenants
                 come from instead is the difference between "nothing here" and
                 "nothing here, and here is why".
@@ -159,12 +159,12 @@ import { PlatformService } from "./platform.service";
                 icon="building"
                 [title]="t('platformTenants.emptyTitle')"
                 [description]="
-                  canCreateTenant
+                  canManageTenants()
                     ? t('platformTenants.emptyBody')
                     : t('platformTenants.emptyBodyNoCreate')
                 "
               >
-                @if (canCreateTenant) {
+                @if (canManageTenants()) {
                   <button uiButton size="sm" (click)="dialogOpen.set(true)">
                     <ui-icon name="plus" [size]="15" />
                     {{ t("tenants.new") }}
@@ -222,6 +222,17 @@ import { PlatformService } from "./platform.service";
                       <p dir="ltr" class="font-mono text-xs text-foreground-subtle">
                         {{ tenant.slug }}
                       </p>
+                      <!--
+                        The address to contact about this customer. In the name
+                        cell rather than a column of its own: it is an attribute
+                        of who this tenant is, and a sixth column would push the
+                        lifecycle menu off a laptop screen.
+                      -->
+                      @if (tenant.adminEmail) {
+                        <p dir="ltr" class="truncate text-xs text-foreground-muted">
+                          {{ tenant.adminEmail }}
+                        </p>
+                      }
                     </td>
                     <td>
                       <ui-badge [tone]="STATUS_TONES[tenant.status]" [dot]="true">
@@ -229,53 +240,74 @@ import { PlatformService } from "./platform.service";
                       </ui-badge>
                     </td>
                     <td class="text-foreground-muted">{{ t(PLAN_LABELS[tenant.plan]) }}</td>
+                    <!--
+                      Used against included, not a bare count. The bare number
+                      cannot be acted on; the fraction says whether this customer
+                      is about to be unable to add anyone. Turns red at the
+                      limit, which is the row an operator is looking for.
+                    -->
                     <td class="tabular-nums text-foreground-muted">
-                      {{ i18n.formatNumber(tenant.userCount) }}
+                      <span [class.text-danger]="tenant.userCount >= tenant.userLimit">
+                        {{
+                          t("tenants.seatsUsed", {
+                            used: i18n.formatNumber(tenant.userCount),
+                            limit: i18n.formatNumber(tenant.userLimit)
+                          })
+                        }}
+                      </span>
                     </td>
                     <td class="whitespace-nowrap text-foreground-muted">
                       {{ i18n.formatDate(tenant.createdAt) }}
                     </td>
                     <td class="text-end">
-                      <ui-dropdown align="end">
-                        <button
-                          type="button"
-                          class="rounded-lg p-1.5 text-foreground-subtle transition-colors duration-150 hover:bg-surface-muted hover:text-foreground"
-                          [attr.aria-label]="
-                            t('platformTenants.rowActions', { name: tenant.name })
-                          "
-                        >
-                          <ui-icon name="more" [size]="16" />
-                        </button>
-                        <div dropdownMenu>
-                          <!-- Offered by current state, not all four at once: a
-                               menu that lets you suspend an already-suspended
-                               tenant invites a click that does nothing and
-                               reads as a failure. -->
-                          @if (tenant.status !== "suspended" && tenant.status !== "archived") {
-                            <button uiMenuItem type="button" (click)="ask(tenant, 'suspended')">
-                              <ui-icon name="lock" [size]="15" />
-                              {{ t("lifecycle.suspend") }}
-                            </button>
-                          }
-                          @if (tenant.status === "suspended" || tenant.status === "archived") {
-                            <button uiMenuItem type="button" (click)="ask(tenant, 'active')">
-                              <ui-icon name="refresh" [size]="15" />
-                              {{ t("lifecycle.reactivate") }}
-                            </button>
-                          }
-                          @if (tenant.status !== "archived") {
-                            <button
-                              uiMenuItem
-                              type="button"
-                              tone="danger"
-                              (click)="ask(tenant, 'archived')"
-                            >
-                              <ui-icon name="trash" [size]="15" />
-                              {{ t("lifecycle.archive") }}
-                            </button>
-                          }
-                        </div>
-                      </ui-dropdown>
+                      <!--
+                        The whole menu goes, not each item: the only actions in
+                        it are the lifecycle transitions, so a reader with no
+                        write permission would otherwise get a trigger that
+                        opens an empty popover.
+                      -->
+                      @if (canManageTenants()) {
+                        <ui-dropdown align="end">
+                          <button
+                            type="button"
+                            class="rounded-lg p-1.5 text-foreground-subtle transition-colors duration-150 hover:bg-surface-muted hover:text-foreground"
+                            [attr.aria-label]="
+                              t('platformTenants.rowActions', { name: tenant.name })
+                            "
+                          >
+                            <ui-icon name="more" [size]="16" />
+                          </button>
+                          <div dropdownMenu>
+                            <!-- Offered by current state, not all four at once: a
+                                 menu that lets you suspend an already-suspended
+                                 tenant invites a click that does nothing and
+                                 reads as a failure. -->
+                            @if (tenant.status !== "suspended" && tenant.status !== "archived") {
+                              <button uiMenuItem type="button" (click)="ask(tenant, 'suspended')">
+                                <ui-icon name="lock" [size]="15" />
+                                {{ t("lifecycle.suspend") }}
+                              </button>
+                            }
+                            @if (tenant.status === "suspended" || tenant.status === "archived") {
+                              <button uiMenuItem type="button" (click)="ask(tenant, 'active')">
+                                <ui-icon name="refresh" [size]="15" />
+                                {{ t("lifecycle.reactivate") }}
+                              </button>
+                            }
+                            @if (tenant.status !== "archived") {
+                              <button
+                                uiMenuItem
+                                type="button"
+                                tone="danger"
+                                (click)="ask(tenant, 'archived')"
+                              >
+                                <ui-icon name="trash" [size]="15" />
+                                {{ t("lifecycle.archive") }}
+                              </button>
+                            }
+                          </div>
+                        </ui-dropdown>
+                      }
                     </td>
                   </tr>
                 }
@@ -315,11 +347,11 @@ import { PlatformService } from "./platform.service";
     }
 
     <!--
-      Guarded on the flag as well as on the signal, so the dialog cannot be
-      opened by anything that sets dialogOpen without going through a button
-      that no longer exists.
+      Guarded on the permission as well as on the signal, so the dialog cannot
+      be opened by anything that sets dialogOpen without going through a button
+      that was never drawn.
     -->
-    @if (canCreateTenant && dialogOpen()) {
+    @if (canManageTenants() && dialogOpen()) {
       <app-create-tenant-dialog (created)="load()" (closed)="dialogOpen.set(false)" />
     }
   `
@@ -333,14 +365,30 @@ export class AllTenantsPage {
   protected readonly STATUS_LABELS = TENANT_STATUS_LABEL_KEYS;
   protected readonly PLAN_LABELS = TENANT_PLAN_LABEL_KEYS;
 
+  private readonly session = inject(SessionStore);
+
   /**
-   * Whether this build offers tenant creation.
+   * Whether to draw the tenant-management controls: the create button, and the
+   * lifecycle transitions in each row's menu.
    *
-   * A build-time constant rather than a signal: it cannot change while the page
-   * is open, and making it a signal would suggest otherwise. It is not a
-   * permission check either — `POST /tenants` does that, and keeps doing it.
+   * One check for both, because the installation defines one permission for
+   * both — `platform.tenant.write` is "create tenants and change any tenant's
+   * lifecycle state". Splitting it in the client would invent a distinction the
+   * API does not enforce.
+   *
+   * This replaces the former `features.tenantCreation` build flag. That flag was
+   * off because provisioning happened outside the portal; now that it happens
+   * here, the question is no longer "does this build offer it" but "may this
+   * operator do it" — and an operator holding only `platform.tenant.read` should
+   * see the list without buttons that would 403.
+   *
+   * A rendering decision only. `POST /tenants` and
+   * `PATCH /platform/tenants/:id/status` both check the same permission against
+   * the signed token claim, so an operator who edits this out of storage gets
+   * the buttons back and the same 403 they would have got anyway.
    */
-  protected readonly canCreateTenant = environment.features.tenantCreation;
+  protected readonly canManageTenants = () =>
+    this.session.hasPermission("platform.tenant.write");
 
   protected readonly state = signal<Async<Page<TenantSummary>>>(asyncLoading());
   protected readonly dialogOpen = signal(false);

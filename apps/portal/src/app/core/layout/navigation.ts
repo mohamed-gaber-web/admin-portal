@@ -43,6 +43,7 @@ export const NAVIGATION: readonly NavSection[] = [
     items: [
       { labelKey: "nav.allTenants", route: "/platform/tenants", icon: "building" },
       { labelKey: "nav.allUsers", route: "/platform/users", icon: "users" },
+      { labelKey: "nav.packages", route: "/platform/packages", icon: "inbox" },
       { labelKey: "nav.superAdmins", route: "/platform/admins", icon: "shield" },
       { labelKey: "nav.permissions", route: "/platform/permissions", icon: "key" }
     ]

@@ -1,7 +1,9 @@
 import {
   BadRequestException,
+  ConflictException,
   Controller,
   Get,
+  HttpCode,
   Ip,
   NotFoundException,
   Param,
@@ -20,6 +22,9 @@ import {
   pageQuerySchema,
   setTenantModulesSchema,
   setTenantPlanSchema,
+  updatePlanSchema,
+  updateTenantSchema,
+  updateTenantSeatsSchema,
   updateTenantStatusSchema,
   updateUserStatusSchema,
   userQuerySchema,
@@ -28,20 +33,29 @@ import {
   type CreatePlatformAdminInput,
   type Page,
   type PageQuery,
+  type Plan,
   type PlatformAdmin,
   type PlatformAdminCreated,
+  type ReissuedInvitation,
   type SetTenantModulesInput,
   type SetTenantPlanInput,
   type TenantDetail,
   type TenantModule,
   type TenantSummary,
+  type UpdatePlanInput,
+  type UpdateTenantInput,
+  type UpdateTenantSeatsInput,
   type UpdateTenantStatusInput,
   type UpdateUserStatusInput,
   type UserDetail,
   type UserQuery,
   type UserSummary
 } from "@growpath/contracts";
-import { PlatformTenantMissingError, UserHasNoCredentialError } from "@growpath/db";
+import {
+  PlatformTenantMissingError,
+  UserAlreadyActiveError,
+  UserHasNoCredentialError
+} from "@growpath/db";
 import { AccessTokenGuard } from "../auth/access-token.guard";
 import { PlatformGuard, RequiresPlatformPermission } from "../auth/platform.guard";
 import { actorFrom } from "../common/actor";
@@ -139,6 +153,93 @@ export class PlatformController {
       id,
       dto.plan,
       dto.unsubscribe ?? false,
+      actorFrom(request, ip)
+    );
+    if (!tenant) {
+      throw new NotFoundException({ message: "Tenant not found." });
+    }
+    return tenant;
+  }
+
+  /**
+   * A fresh invitation for a tenant's administrator.
+   *
+   * The operator's remedy for a tenant stuck at `pending` — a status derived
+   * from "nobody here has signed in yet", which no lifecycle transition can
+   * clear. Under `platform.tenant.write`, beside the lifecycle transitions,
+   * because it is the same kind of operational repair.
+   *
+   * 409 when the administrator already has a password: they do not need an
+   * invitation, and issuing one would be a password reset wearing the wrong
+   * name. The check lives in `issueInvitation` so every caller inherits it.
+   */
+  @Post(API_ROUTES.platformTenantAdminInvitation)
+  @HttpCode(201)
+  @RequiresPlatformPermission("platform.tenant.write")
+  async reissueAdminInvitation(
+    @Param("id") id: string,
+    @Req() request: Request,
+    @Ip() ip: string
+  ): Promise<ReissuedInvitation> {
+    try {
+      const result = await this.platform.reissueAdminInvitation(
+        id,
+        actorFrom(request, ip)
+      );
+      if (!result) {
+        throw new NotFoundException({ message: "Tenant not found." });
+      }
+      return result;
+    } catch (err) {
+      if (err instanceof UserAlreadyActiveError) {
+        throw new ConflictException({ message: err.message });
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * A tenant's editable details — its name.
+   *
+   * Under `platform.tenant.write`, the same key as the lifecycle transitions
+   * beside it: renaming is an operational correction, not a commercial
+   * decision. The slug is not editable; see `updateTenantSchema`.
+   */
+  @Patch(API_ROUTES.platformTenantUpdate)
+  @RequiresPlatformPermission("platform.tenant.write")
+  async updateTenant(
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(updateTenantSchema)) dto: UpdateTenantInput,
+    @Req() request: Request,
+    @Ip() ip: string
+  ): Promise<TenantDetail> {
+    const tenant = await this.platform.setTenantName(id, dto.name, actorFrom(request, ip));
+    if (!tenant) {
+      throw new NotFoundException({ message: "Tenant not found." });
+    }
+    return tenant;
+  }
+
+  /**
+   * A tenant's negotiated seat allowance, or `null` to inherit its package.
+   *
+   * Under `platform.plan.write` rather than `platform.tenant.write`: this is a
+   * commercial decision about what a customer may have, the same kind of
+   * decision as moving them between packages — not an operational one like
+   * suspending them. An installation that wants a support operator who can
+   * suspend a tenant but not re-sell to them can express that.
+   */
+  @Patch(API_ROUTES.platformTenantSeats)
+  @RequiresPlatformPermission("platform.plan.write")
+  async setTenantSeats(
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(updateTenantSeatsSchema)) dto: UpdateTenantSeatsInput,
+    @Req() request: Request,
+    @Ip() ip: string
+  ): Promise<TenantDetail> {
+    const tenant = await this.platform.setTenantSeats(
+      id,
+      dto.seatLimit,
       actorFrom(request, ip)
     );
     if (!tenant) {
@@ -291,5 +392,53 @@ export class PlatformController {
   @RequiresPlatformPermission("platform.tenant.read")
   listPermissions(): Promise<CatalogPermission[]> {
     return this.platform.listPermissions();
+  }
+
+  /**
+   * Every package on offer, and the seats each includes.
+   *
+   * Gated on `platform.tenant.read` rather than `platform.plan.write`, because
+   * reading the catalogue and changing a customer's package are different acts.
+   * An operator who may look at tenants but not re-sell to them still needs the
+   * numbers — the tenant list renders "24 of 25 users" from them, and withholding
+   * that would leave the read-only screens unable to say why an invitation was
+   * refused.
+   */
+  @Get(API_ROUTES.platformPlans)
+  @RequiresPlatformPermission("platform.tenant.read")
+  listPlans(): Promise<Plan[]> {
+    return this.platform.listPlans();
+  }
+
+  /**
+   * Changes how many users a package includes.
+   *
+   * Under `platform.plan.write`, the same key that moves one tenant between
+   * packages and that sets one tenant's negotiated figure. All three are the
+   * same kind of decision — what a customer may have — and an installation that
+   * separated them would be inventing a distinction it then had to staff.
+   *
+   * The reach is what makes this the sharpest edge on that permission: a
+   * per-tenant override touches one customer, and this touches every tenant on
+   * the package that has not negotiated one. The response carries the whole
+   * catalogue with its tenant counts so the screen can show what just moved.
+   */
+  @Patch(API_ROUTES.platformPlan)
+  @RequiresPlatformPermission("platform.plan.write")
+  async setPlanUserLimit(
+    @Param("key") key: string,
+    @Body(new ZodValidationPipe(updatePlanSchema)) dto: UpdatePlanInput,
+    @Req() request: Request,
+    @Ip() ip: string
+  ): Promise<Plan[]> {
+    const plans = await this.platform.setPlanUserLimit(
+      key,
+      dto.userLimit,
+      actorFrom(request, ip)
+    );
+    if (!plans) {
+      throw new NotFoundException({ message: "Package not found." });
+    }
+    return plans;
   }
 }

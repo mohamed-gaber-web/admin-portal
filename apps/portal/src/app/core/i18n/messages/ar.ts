@@ -63,6 +63,7 @@ export const ar: Messages = {
   "nav.platform": "المنصّة",
   "nav.allTenants": "كل المستأجرين",
   "nav.allUsers": "كل المستخدمين",
+  "nav.packages": "الباقات",
   "nav.superAdmins": "المسؤولون العامّون",
   "nav.permissions": "الصلاحيات",
   "nav.configuration": "الإعدادات الفنية",
@@ -234,6 +235,7 @@ export const ar: Messages = {
   "tenants.columnTenant": "المستأجر",
   "tenants.columnPlan": "الباقة",
   "tenants.columnUsers": "المستخدمون",
+  "tenants.seatsUsed": "{used} / {limit}",
   "tenants.columnCreated": "تاريخ الإنشاء",
   "tenants.emptyTitle": "لا يوجد مستأجرون بعد",
   "tenants.emptyBody": "أنشئ أول مساحة عمل للبدء.",
@@ -366,6 +368,62 @@ export const ar: Messages = {
     "يُسجَّل في سجل التدقيق بوصفه إلغاء اشتراك، وهو الشيء الوحيد الذي يميّزه لاحقًا عن خفض الباقة.",
   "subscription.unsubscribeConfirm": "إلغاء الاشتراك",
   "subscription.unsubscribed": "تم إلغاء اشتراك {name}.",
+  // المقاعد — ما تتضمّنه الباقة، وكم استُخدم منها.
+  "subscription.seats": "المقاعد",
+  "subscription.seatsUsed": "{used} من {limit} مستخدمة",
+  "subscription.planSeats": "{count} مستخدمًا",
+  "subscription.downgradeTitle": "هذه الباقة تتضمّن مقاعد أقل",
+  // حدّ المقاعد المتفاوض عليه لكل مستأجر.
+  "seats.overrideLabel": "المقاعد لهذا المستأجر",
+  "seats.save": "حفظ المقاعد",
+  "seats.usePackage": "استخدام قيمة الباقة",
+  "seats.inheriting": "يرث {limit} من الباقة.",
+  "seats.negotiated": "متفاوض عليه: {limit} مقعدًا لهذا المستأجر.",
+  "seats.belowUsage": "لدى هذا المستأجر بالفعل {used} مستخدمًا، أي أكثر من {limit} التي تضبطها. لن يُحذف أحد، لكن لا يمكن دعوة مستخدم جديد حتى يعود العدد ضمن الحدّ.",
+  "seats.savedToast": "تم ضبط حدّ المقاعد على {limit}.",
+  "seats.clearedToast": "تمت العودة إلى قيمة الباقة {limit}.",
+  "seats.failed": "تعذّر تغيير حدّ المقاعد.",
+  "subscription.downgradeBody":
+    "لدى هذا المستأجر {used} مستخدمًا، وتتضمّن باقة {plan} عدد {limit}. التغيير مسموح، لكن لا يمكن دعوة أحد جديد حتى يعود العدد ضمن الحدّ المسموح.",
+
+  // إنشاء مستأجر: الباقة التي يبدأ بها.
+  "createTenant.plan": "الباقة",
+  "createTenant.planHint": "تحدّد عدد المستخدمين المسموح به للمستأجر، ويمكن تغييرها لاحقًا.",
+  "createTenant.planSeats": "{count} مستخدمًا",
+  // إعادة تسمية المستأجر ودورة حياته من شاشة التفاصيل.
+  "tenantDetail.pendingTitle": "في انتظار أول تسجيل دخول",
+  "tenantDetail.pendingBody": "يبقى هذا المستأجر قيد الانتظار حتى يسجّل أحد الدخول لأول مرة. دُعي {email} ولم يقبل الدعوة بعد — وتتحوّل الحالة إلى نشط تلقائيًا بمجرّد ضبط كلمة المرور. إعادة التنشيط لا تغيّر ذلك، لأنّ لا شيء هنا موقوف.",
+  "tenantDetail.resendInvite": "إرسال دعوة جديدة",
+  "tenantDetail.inviteFor": "دعوة جديدة إلى {email}",
+  "tenantDetail.inviteExpires": "تنتهي في {date}. يُعرض هذا الرابط مرّة واحدة — انسخه الآن.",
+  "tenantDetail.resendFailed": "تعذّر إصدار الدعوة.",
+  "tenantDetail.rename": "إعادة تسمية",
+  "tenantDetail.renameSave": "حفظ الاسم",
+  "tenantDetail.renameTitle": "إعادة تسمية المستأجر",
+  "tenantDetail.renameSubtitle": "يغيّر اسم العرض فقط، ويبقى كل ما عداه كما هو.",
+  "tenantDetail.slugFixed": "لا يمكن تغيير المعرّف — فالمستخدمون يسجّلون الدخول به، والدعوات المُرسلة تحمله.",
+  "tenantDetail.renamed": "تمت إعادة التسمية إلى {name}.",
+  "tenantDetail.renameFailed": "تعذّر إعادة تسمية المستأجر.",
+
+  // الباقات — عدد المقاعد في كل باقة (شاشة المنصة).
+  "packages.title": "الباقات",
+  "packages.subtitle": "ما تتضمّنه كل باقة، وعدد المستأجرين عليها.",
+  "packages.catalogueTitle": "المقاعد لكل باقة",
+  "packages.catalogueBody":
+    "تغيير الرقم هنا يطبّق على كل مستأجر على هذه الباقة ليس لديه حدّ مقاعد خاص به. أمّا من مُنِح رقمًا متفاوضًا عليه فيبقى عليه.",
+  "packages.columnPackage": "الباقة",
+  "packages.columnSeats": "المقاعد المتضمّنة",
+  "packages.columnTenants": "المستأجرون",
+  "packages.columnActions": "إجراءات",
+  "packages.seatsFor": "المقاعد المتضمّنة في {plan}",
+  "packages.save": "حفظ",
+  "packages.savedToast": "باقة {plan} أصبحت تتضمّن {limit} مستخدمًا.",
+  "packages.saveFailed": "تعذّر تحديث الباقة.",
+  "packages.loadFailed": "تعذّر تحميل الباقات",
+  "packages.loadError": "تعذّر تحميل قائمة الباقات.",
+  "packages.loadingLabel": "جارٍ تحميل الباقات",
+  "packages.reachNote":
+    "يسري التغيير فورًا. المستأجر الذي تجاوز الحدّ الجديد يحتفظ بجميع مستخدميه — لكنه لا يستطيع إضافة غيرهم حتى يعود ضمن العدد.",
 
   // صلاحيات الوحدات (US-072)
   "modules.title": "الوحدات",

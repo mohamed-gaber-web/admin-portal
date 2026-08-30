@@ -196,7 +196,14 @@ import { TenantsService } from "./tenants.service";
                       {{ t(PLAN_LABELS[tenant.plan]) }}
                     </td>
                     <td class="tabular-nums text-foreground-muted">
-                      {{ i18n.formatNumber(tenant.userCount) }}
+                      <span [class.text-danger]="tenant.userCount >= tenant.userLimit">
+                        {{
+                          t("tenants.seatsUsed", {
+                            used: i18n.formatNumber(tenant.userCount),
+                            limit: i18n.formatNumber(tenant.userLimit)
+                          })
+                        }}
+                      </span>
                     </td>
                     <!-- Formatted through the active locale, so an Arabic
                          reader gets an Arabic month name rather than "Aug". -->

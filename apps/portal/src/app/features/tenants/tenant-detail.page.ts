@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, effect, inject, input, signal } from "@angular/core";
+import { ChangeDetectionStrategy, Component, effect, inject, input, signal, untracked } from "@angular/core";
 import { RouterLink } from "@angular/router";
 import { describeError } from "@core/http/api-error";
 import { I18nService, injectT } from "@core/i18n/i18n.service";
@@ -148,8 +148,21 @@ import { TenantsService } from "./tenants.service";
                   <dt class="text-xs font-medium uppercase tracking-wide text-foreground-subtle">
                     {{ t("tenantDetail.userCount") }}
                   </dt>
-                  <dd class="mt-1 text-sm tabular-nums text-foreground">
-                    {{ i18n.formatNumber(tenant.userCount) }}
+                  <!--
+                    Used against included. The bare count was the right thing to
+                    show while a tenant had no allowance; now that it has one,
+                    the count alone hides the reason an invitation gets refused.
+                  -->
+                  <dd
+                    class="mt-1 text-sm tabular-nums text-foreground"
+                    [class.text-danger]="tenant.userCount >= tenant.userLimit"
+                  >
+                    {{
+                      t("tenants.seatsUsed", {
+                        used: i18n.formatNumber(tenant.userCount),
+                        limit: i18n.formatNumber(tenant.userLimit)
+                      })
+                    }}
                   </dd>
                 </div>
                 <div>
@@ -266,7 +279,20 @@ export class TenantDetailPage {
     effect(
       () => {
         this.id();
-        this.load();
+        /*
+         * `load()` is untracked, and must stay that way.
+         *
+         * Its first statement is `state.set(asyncLoading(state().data))` — it
+         * *reads* the signal it then *writes*. Called directly here, that read
+         * becomes a dependency of this effect, and the write re-triggers the
+         * effect that performed it: an unbounded loop that pins a core and
+         * takes the tab down with it. `allowSignalWrites` permits the write; it
+         * does not break the cycle.
+         *
+         * The dependency this effect is meant to have is the id above, and only
+         * that: reload when the route parameter changes.
+         */
+        untracked(() => this.load());
       },
       { allowSignalWrites: true }
     );

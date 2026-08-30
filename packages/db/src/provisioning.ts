@@ -61,6 +61,14 @@ export interface ProvisionTenantInput {
   slug: string;
   /** Defaults to `admin@<slug>.local`. */
   adminEmail?: string;
+  /**
+   * The package to start the tenant on.
+   *
+   * Omitted means "whatever the column defaults to", which is deliberately not
+   * spelled out here: the database applies the default, so there is one value
+   * in play rather than a copy in application code that can drift from it.
+   */
+  plan?: string;
 }
 
 export interface ProvisionTenantResult {
@@ -108,10 +116,21 @@ export async function provisionTenantOnClient(
 
   let tenant: { id: string; name: string; slug: string };
   try {
-    const res = await client.query<{ id: string; name: string; slug: string }>(
-      "INSERT INTO tenant (name, slug) VALUES ($1, $2) RETURNING id, name, slug",
-      [input.name, input.slug]
-    );
+    /*
+     * Two statements rather than one with a coalesce, so that omitting the plan
+     * leaves the column out of the INSERT entirely and the *database's* default
+     * applies. Passing a fallback from here would make application code the
+     * second place the default is written down, and the one that silently wins.
+     */
+    const res = input.plan
+      ? await client.query<{ id: string; name: string; slug: string }>(
+          "INSERT INTO tenant (name, slug, plan) VALUES ($1, $2, $3) RETURNING id, name, slug",
+          [input.name, input.slug, input.plan]
+        )
+      : await client.query<{ id: string; name: string; slug: string }>(
+          "INSERT INTO tenant (name, slug) VALUES ($1, $2) RETURNING id, name, slug",
+          [input.name, input.slug]
+        );
     tenant = res.rows[0];
   } catch (err) {
     if (isUniqueViolation(err)) {

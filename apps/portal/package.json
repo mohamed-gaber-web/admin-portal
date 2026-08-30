@@ -3,8 +3,8 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "ng serve",
-    "start": "ng serve",
+    "dev": "node ../../scripts/refresh-portal-deps.mjs && ng serve",
+    "start": "node ../../scripts/refresh-portal-deps.mjs && ng serve",
     "build": "ng build",
     "lint": "eslint src && node ../../scripts/check-i18n.mjs",
     "typecheck": "tsc -p tsconfig.app.json --noEmit"
