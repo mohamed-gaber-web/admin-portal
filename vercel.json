@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "pnpm --filter @growpath/portal... build",
   "installCommand": "pnpm install --frozen-lockfile",
-  "outputDirectory": "apps/portal/dist/browser",
+  "outputDirectory": "dist/browser",
   "framework": null,
   "rewrites": [
     {
