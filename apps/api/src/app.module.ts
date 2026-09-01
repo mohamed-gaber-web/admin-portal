@@ -1,4 +1,5 @@
 import { MiddlewareConsumer, Module, type NestModule } from "@nestjs/common";
+import { APP_FILTER } from "@nestjs/core";
 import { ActivityController } from "./activity/activity.controller";
 import { ActivityService } from "./activity/activity.service";
 import { AuthController } from "./auth/auth.controller";
@@ -21,6 +22,7 @@ import { RoleService } from "./role/role.service";
 import { UserController } from "./user/user.controller";
 import { UserService } from "./user/user.service";
 import { RateLimitGuard } from "./common/rate-limit.guard";
+import { UnhandledExceptionFilter } from "./common/unhandled-exception.filter";
 import { RateLimitService } from "./common/rate-limit.service";
 import { DatabaseModule } from "./database/database.module";
 import { HealthController } from "./health/health.controller";
@@ -53,6 +55,9 @@ import { TenantService } from "./tenant/tenant.service";
     UserController
   ],
   providers: [
+    // First, so an unhandled exception anywhere is logged with its cause and
+    // answered with a classification rather than a bare 500.
+    { provide: APP_FILTER, useClass: UnhandledExceptionFilter },
     ActivityService,
     AuthService,
     CompanyService,
