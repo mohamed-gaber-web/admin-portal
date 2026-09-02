@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, effect, inject, input, signal, untracked } from "@angular/core";
+import { SessionStore } from "@core/auth/session.store";
 import { RouterLink } from "@angular/router";
 import { describeError } from "@core/http/api-error";
 import { I18nService, injectT } from "@core/i18n/i18n.service";
@@ -201,15 +202,17 @@ import { UsersService } from "./users.service";
                           class="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-muted py-1 ps-3 pe-1.5 text-sm text-foreground"
                         >
                           {{ t(labelForRole(role)) }}
-                          <button
-                            type="button"
-                            class="rounded-full p-1 text-foreground-subtle transition-colors duration-150 hover:bg-danger-subtle hover:text-danger"
-                            [disabled]="saving()"
-                            [attr.aria-label]="t('userDetail.removeRole', { role: t(labelForRole(role)) })"
-                            (click)="removeRole(role)"
-                          >
-                            <ui-icon name="close" [size]="12" />
-                          </button>
+                          @if (canManage()) {
+                            <button
+                              type="button"
+                              class="rounded-full p-1 text-foreground-subtle transition-colors duration-150 hover:bg-danger-subtle hover:text-danger"
+                              [disabled]="saving()"
+                              [attr.aria-label]="t('userDetail.removeRole', { role: t(labelForRole(role)) })"
+                              (click)="removeRole(role)"
+                            >
+                              <ui-icon name="close" [size]="12" />
+                            </button>
+                          }
                         </li>
                       }
                     </ul>
@@ -306,6 +309,7 @@ export class UserDetailPage {
   private readonly users = inject(UsersService);
   private readonly rolesService = inject(RolesService);
   private readonly toasts = inject(ToastService);
+  private readonly session = inject(SessionStore);
 
   protected readonly t = injectT();
   protected readonly i18n = inject(I18nService);
@@ -396,13 +400,27 @@ export class UserDetailPage {
     });
   }
 
+  /**
+   * Whether this session may change anything on this screen.
+   *
+   * `user.write` — the same key the API checks on the role and status routes.
+   * Everything below funnels through it rather than each control asking
+   * separately, so a viewer gets a profile that reads as a record instead of a
+   * form whose every button answers 403.
+   */
+  protected canManage(): boolean {
+    return this.session.hasPermission("user.write");
+  }
+
   protected actions(): UserAction[] {
+    if (!this.canManage()) return [];
     const status = this.state().data?.status;
     return status ? USER_ACTIONS_BY_STATUS[status] : [];
   }
 
   /** Roles the tenant has that this person does not already hold. */
   protected assignable(): readonly Role[] {
+    if (!this.canManage()) return [];
     const held = new Set(this.state().data?.roles ?? []);
     return this.roles().filter((role) => !held.has(role.name));
   }

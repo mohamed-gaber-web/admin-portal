@@ -233,6 +233,7 @@ export {
   invitationTokenMatches,
   burnPasswordHashingTime,
   MIN_PASSWORD_LENGTH,
+  EmailAlreadyInUseError,
   InvalidInvitationError,
   UserAlreadyActiveError,
   DEFAULT_INVITATION_TTL_HOURS,

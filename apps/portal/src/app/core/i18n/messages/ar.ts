@@ -505,6 +505,11 @@ export const ar: Messages = {
   "configuration.tabConnections": "اتصالات D365",
   "configuration.tabMobile": "تطبيق الجوال",
   "configuration.tabModules": "الوحدات",
+  "configuration.readOnlyTitle": "صلاحيتك للاطّلاع فقط",
+  "configuration.readOnlyConnections":
+    "يتيح دورك الاطّلاع على اتصالات D365 دون تعديلها. اطلب من أحد المسؤولين تحديث بيانات الاعتماد.",
+  "configuration.readOnlyMobile":
+    "يتيح دورك الاطّلاع على إعدادات تطبيق الجوال دون تعديلها. اطلب من أحد المسؤولين تحديثها.",
 
   "ownModules.title": "وحداتك",
   "ownModules.subtitle": "ما تملك مؤسستك ترخيصًا له. يتولّى تغييره مدير حسابك.",
@@ -527,6 +532,8 @@ export const ar: Messages = {
   "connections.clientSecret": "سرّ العميل",
   "connections.clientSecretKeepHint": "اتركه فارغًا للإبقاء على السرّ المخزَّن.",
   "connections.clientSecretFirstHint": "مطلوب — لا يوجد سرّ مخزَّن لهذه البيئة بعد.",
+  "connections.clientSecretStored": "يوجد سرّ عميل مخزَّن لهذه البيئة، ولا يُعرض أبداً.",
+  "connections.clientSecretMissing": "لا يوجد سرّ عميل مخزَّن لهذه البيئة بعد.",
   "connections.secretRequired": "سرّ العميل مطلوب في المرة الأولى.",
   "connections.guidInvalid": "أدخل معرّف GUID.",
   "connections.authorityHost": "مضيف جهة الإصدار",
@@ -587,6 +594,16 @@ export const ar: Messages = {
 
   "platformUsers.title": "كل المستخدمين",
   "platformUsers.subtitle": "كل من لديه حساب، عبر جميع المستأجرين.",
+  "platformInvite.action": "إضافة مستخدم",
+  "platformInvite.newTitle": "إضافة مستخدم إلى مستأجر",
+  "platformInvite.newSubtitle":
+    "تُصدر دعوة إلى المستأجر الذي تختاره، ويضع المستخدم كلمة مروره عند قبولها.",
+  "platformInvite.tenantLabel": "المستأجر",
+  "platformInvite.tenantHint": "مساحة العمل التي يُضاف إليها هذا الشخص.",
+  "platformInvite.roleHint":
+    "الدوران اللذان يُنشأ بهما كل مستأجر. سيرفض الطلبَ مستأجرٌ أعاد تسمية أدواره، مع بيان السبب.",
+  "platformInvite.failed": "تعذّر إصدار الدعوة.",
+  "platformInvite.tenantsFailed": "تعذّر تحميل قائمة المستأجرين.",
   "platformUsers.searchPlaceholder": "ابحث بالاسم أو البريد أو المستأجر",
   "platformUsers.emptyTitle": "لا يوجد مستخدمون مطابقون",
   "platformUsers.emptyBody": "جرّب بحثًا آخر أو امسح مرشّح الحالة.",
@@ -690,6 +707,9 @@ export const ar: Messages = {
   "roles.permissionCount": "{granted} من {total}",
   "roles.matrixTitle": "الصلاحيات",
   "roles.matrixSubtitle": "حدّد ما يُسمح به لكل دور.",
+  "roles.readOnlyTitle": "صلاحيتك للاطّلاع فقط",
+  "roles.readOnlyBody":
+    "يتيح دورك الاطّلاع على مصفوفة الصلاحيات دون تعديلها. اطلب من أحد المسؤولين تعديل الأدوار.",
   "roles.catalogueReadOnly":
     "قائمة الصلاحيات تحدّدها المنصة وهي نفسها لكل مساحات العمل. الأدوار هي التي تحدّد من يملك أيًّا منها.",
   "roles.saved": "تم تحديث {role}",

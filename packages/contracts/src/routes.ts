@@ -262,6 +262,22 @@ export const API_ROUTES = {
   platformTenantModules: "/platform/tenants/:id/modules",
 
   platformUsers: "/platform/users",
+  /**
+   * Inviting somebody into a *named* tenant (US-073).
+   *
+   * The cross-tenant twin of `POST /users/invitations`, and separate from it for
+   * the reason every route here is separate: the tenant-scoped one takes its
+   * tenant from the token and cannot be pointed anywhere else, which is what
+   * makes it safe to expose to a tenant administrator. This one takes the tenant
+   * in the body — meaningless without `platform.user.write` *and* a caller
+   * inside the reserved platform tenant, which is exactly the pair `PlatformGuard`
+   * insists on.
+   *
+   * An operator's remedy for "we need somebody added to Acme and their admin is
+   * on leave", where `platformTenantAdminInvitation` is the narrower remedy for
+   * a tenant that has nobody at all.
+   */
+  platformUserInvitations: "/platform/users/invitations",
   platformUser: "/platform/users/:id",
   platformUserStatus: "/platform/users/:id/status",
 

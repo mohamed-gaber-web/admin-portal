@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from "@angular/core";
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from "@angular/core";
+import { SessionStore } from "@core/auth/session.store";
 import { RouterLink } from "@angular/router";
 import { describeError } from "@core/http/api-error";
 import { injectT } from "@core/i18n/i18n.service";
@@ -76,10 +77,17 @@ import { UsersService } from "./users.service";
       [title]="t('users.title')"
       [description]="t('users.subtitle')"
     >
-      <button uiButton variant="outline" (click)="inviteOpen.set(true)">
-        <ui-icon name="mail" [size]="16" />
-        {{ t("users.invite") }}
-      </button>
+      @if (canManage()) {
+        <!--
+          Absent rather than disabled without user.write. There is no state a
+          viewer could reach where this button would work, so a greyed-out one
+          would only invite them to look for the setting that enables it.
+        -->
+        <button uiButton variant="outline" (click)="inviteOpen.set(true)">
+          <ui-icon name="mail" [size]="16" />
+          {{ t("users.invite") }}
+        </button>
+      }
     </app-page-header>
 
     <ui-card [padded]="false">
@@ -201,14 +209,16 @@ import { UsersService } from "./users.service";
                             <ui-icon name="user" [size]="15" />
                             {{ t("users.viewProfile") }}
                           </a>
-                          <button uiMenuItem type="button">
-                            <ui-icon name="mail" [size]="15" />
-                            {{ t("users.resendInvitation") }}
-                          </button>
-                          <button uiMenuItem type="button" tone="danger">
-                            <ui-icon name="lock" [size]="15" />
-                            {{ t("users.suspend") }}
-                          </button>
+                          @if (canManage()) {
+                            <button uiMenuItem type="button">
+                              <ui-icon name="mail" [size]="15" />
+                              {{ t("users.resendInvitation") }}
+                            </button>
+                            <button uiMenuItem type="button" tone="danger">
+                              <ui-icon name="lock" [size]="15" />
+                              {{ t("users.suspend") }}
+                            </button>
+                          }
                         </div>
                       </ui-dropdown>
                     </td>
@@ -241,6 +251,10 @@ export class UsersPage {
   private readonly users = inject(UsersService);
   private readonly rolesService = inject(RolesService);
   private readonly toasts = inject(ToastService);
+  private readonly session = inject(SessionStore);
+
+  /** Whether this session may invite or change a user. */
+  protected readonly canManage = computed(() => this.session.hasPermission("user.write"));
 
   protected readonly inviteOpen = signal(false);
   protected readonly roles = signal<readonly Role[]>([]);

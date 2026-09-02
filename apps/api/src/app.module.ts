@@ -30,6 +30,7 @@ import { HealthService } from "./health/health.service";
 import { CorrelationMiddleware } from "./observability/correlation.middleware";
 import { PlatformController } from "./platform/platform.controller";
 import { PlatformService } from "./platform/platform.service";
+import { PermissionGuard } from "./auth/permission.guard";
 import { PlatformGuard } from "./auth/platform.guard";
 import { RedisModule } from "./redis/redis.module";
 import { EntitlementController } from "./entitlement/entitlement.controller";
@@ -77,7 +78,9 @@ import { TenantService } from "./tenant/tenant.service";
     // Injects the pool and the Reflector, so it must be a provider rather than
     // only a decorator argument — `@UseGuards(PlatformGuard)` resolves it from
     // the container.
-    PlatformGuard
+    PlatformGuard,
+    // Same reason: it injects the Reflector to read @RequiresPermission.
+    PermissionGuard
   ]
 })
 export class AppModule implements NestModule {

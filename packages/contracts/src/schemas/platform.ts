@@ -16,6 +16,31 @@ import { z } from "zod";
  * password would mean one operator knowing another's credential, which defeats
  * the point of having named operators at all.
  */
+/**
+ * Inviting a user into a named tenant, from the platform tier (US-073).
+ *
+ * `tenantId` in the body is the whole difference from `inviteUserSchema`, and it
+ * is why this schema lives here rather than beside it: on a tenant-scoped route
+ * a caller-supplied tenant is the US-012 mistake, and putting the two shapes
+ * next to each other is how one ends up wired to the other's controller.
+ *
+ * `role` is a name, not an id — role ids are tenant-scoped and an operator
+ * standing outside the tenant holds none of them. The API resolves the name
+ * inside the target tenant and refuses one that tenant does not have, so this
+ * cannot be used to attach a role belonging to somebody else.
+ */
+export const invitePlatformUserSchema = z
+  .object({
+    tenantId: z.string().uuid(),
+    email: z.string().email(),
+    role: z.string().min(1),
+    /** Optional: the invitation is addressed to an email, not to a name. */
+    name: z.string().min(1).max(200).optional()
+  })
+  .strict();
+
+export type InvitePlatformUserInput = z.infer<typeof invitePlatformUserSchema>;
+
 export const createPlatformAdminSchema = z
   .object({
     email: z.string().email(),

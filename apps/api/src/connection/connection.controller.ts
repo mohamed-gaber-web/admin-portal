@@ -23,6 +23,7 @@ import {
   type SaveConnectionInput
 } from "@growpath/contracts";
 import { AccessTokenGuard } from "../auth/access-token.guard";
+import { PermissionGuard, RequiresPermission } from "../auth/permission.guard";
 import { actorFrom } from "../common/actor";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { ConnectionService } from "./connection.service";
@@ -39,23 +40,32 @@ import { ConnectionService } from "./connection.service";
  * type rather than of this controller — `connectionSchema` has no field it could
  * occupy (US-045).
  *
- * > Permission enforcement is not applied here yet. `connection.read` and
- * > `connection.write` exist in the catalogue and are stamped into the token's
- * > claims, but the guard that checks them is US-031 and no tenant-scoped route
- * > in this API enforces permissions today. Adding a check on this controller
- * > alone would read as though the others were covered.
+ * ### Who may change one
+ *
+ * `connection.read` to look, `connection.write` to change — the split the
+ * permission catalogue has always described and that nothing enforced until
+ * now. A `viewer` holds the read half, so this screen is legible to everybody
+ * in the tenant and editable only by an administrator, which is the point: the
+ * credential behind it is unrestricted application access to the customer's
+ * ERP, and a read-only user who could rotate it is a read-only user in name.
+ *
+ * The check is on the claim, so it is not something a client can decline to
+ * apply. The portal disables the same form for the same people, and that is a
+ * courtesy rather than the control.
  */
 @Controller()
-@UseGuards(AccessTokenGuard)
+@UseGuards(AccessTokenGuard, PermissionGuard)
 export class ConnectionController {
   constructor(private readonly connections: ConnectionService) {}
 
   @Get(API_ROUTES.connections)
+  @RequiresPermission("connection.read")
   list(): Promise<Connection[]> {
     return this.connections.list();
   }
 
   @Get(API_ROUTES.connection)
+  @RequiresPermission("connection.read")
   async find(@Param("id") id: string): Promise<Connection> {
     const connection = await this.connections.find(id);
     if (!connection) {
@@ -76,6 +86,7 @@ export class ConnectionController {
    * one.
    */
   @Put(API_ROUTES.connection)
+  @RequiresPermission("connection.write")
   async save(
     @Param("id") id: string,
     @Body(new ZodValidationPipe(saveConnectionSchema)) dto: SaveConnectionInput,
@@ -117,8 +128,14 @@ export class ConnectionController {
    * of a check is a legitimate answer whichever way it comes out. This is the
    * endpoint behind the *Test connection* button, which needs to render a
    * failure rather than treat it as a broken request.
+   *
+   * `connection.write`, not `.read`, and the verb is the clue: a check spends a
+   * live credential against Entra and records its outcome on the connection, so
+   * it moves the state the badge renders. A viewer who could run it could flip
+   * the whole tenant's connection to "failing" on demand.
    */
   @Post(API_ROUTES.connectionTest)
+  @RequiresPermission("connection.write")
   @HttpCode(HttpStatus.OK)
   async test(
     @Param("id") id: string,

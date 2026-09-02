@@ -62,6 +62,23 @@ export const PLATFORM_TENANT_SLUG = "platform";
 /** The built-in role that carries the platform permissions. */
 export const PLATFORM_ADMIN_ROLE = "platform-admin";
 
+/**
+ * The roles every tenant is provisioned with.
+ *
+ * Here rather than only in `@growpath/db` because a client needs them: the
+ * platform tier can invite somebody into a tenant it is not signed in to, and
+ * there is no endpoint that lists another tenant's roles — nor should there be
+ * one purely to populate a dropdown. These two exist in every tenant, so
+ * offering them is honest, and the API still resolves the name against the
+ * target tenant's own roles and refuses one it does not have.
+ *
+ * `DEFAULT_ROLES` in `@growpath/db` is the authority; `us073-cross-tenant-invitations`
+ * fails if the two lists drift, because `@growpath/db` cannot import this package.
+ */
+export const DEFAULT_TENANT_ROLES = ["admin", "viewer"] as const;
+
+export type DefaultTenantRole = (typeof DEFAULT_TENANT_ROLES)[number];
+
 /** True for a key that reaches across tenants. Mechanical, by prefix. */
 export function isPlatformPermission(key: string): key is PlatformPermissionKey {
   return key.startsWith("platform.");

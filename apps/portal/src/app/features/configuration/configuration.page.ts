@@ -1,9 +1,11 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from "@angular/core";
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from "@angular/core";
+import { SessionStore } from "@core/auth/session.store";
 import { describeError } from "@core/http/api-error";
 import { injectT } from "@core/i18n/i18n.service";
 import { asyncError, asyncLoading, type Async } from "@core/models";
 import type { Connection, MobileConfig, TenantModule } from "@growpath/contracts";
 import {
+  AlertComponent,
   CardComponent,
   CardHeaderComponent,
   EmptyStateComponent,
@@ -33,12 +35,28 @@ import { ConfigurationService } from "./configuration.service";
  * Both halves are tenant-scoped. Neither takes a tenant identifier anywhere —
  * it comes from the access token's claims and row level security does the
  * filtering, so there is nothing on this screen to point at somebody else.
+ *
+ * ### Who may change what
+ *
+ * Everyone in the tenant may *read* this screen; changing it needs a write
+ * permission, and the two halves need different ones — `connection.write` for
+ * the ERP credential, `tenant.write` for the device configuration. So the page
+ * resolves both here and hands each half a `readOnly` flag, rather than letting
+ * two components each go and ask the session the same question slightly
+ * differently.
+ *
+ * A viewer therefore gets the whole screen with its forms disabled and a line
+ * saying why, which is the honest rendering: they are not missing a page, they
+ * are missing an authority. The API enforces the same split on the claim
+ * (`PermissionGuard`), so this is presentation and not protection — a session
+ * that edits its stored permissions gets buttons that 403.
  */
 @Component({
   selector: "app-configuration-page",
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    AlertComponent,
     CardComponent,
     CardHeaderComponent,
     ConnectionCardComponent,
@@ -64,6 +82,12 @@ import { ConfigurationService } from "./configuration.service";
           [title]="t('connections.title')"
           [description]="t('connections.subtitle')"
         />
+
+        @if (!canManageConnections()) {
+          <ui-alert class="mt-6 block" tone="info" [title]="t('configuration.readOnlyTitle')">
+            {{ t("configuration.readOnlyConnections") }}
+          </ui-alert>
+        }
 
         <div class="mt-6">
           @switch (connections().status) {
@@ -104,6 +128,7 @@ import { ConfigurationService } from "./configuration.service";
                   @for (connection of connections().data ?? []; track connection.environmentId) {
                     <app-connection-card
                       [connection]="connection"
+                      [readOnly]="!canManageConnections()"
                       (changed)="onConnectionChanged($event)"
                     />
                   }
@@ -161,6 +186,12 @@ import { ConfigurationService } from "./configuration.service";
           [description]="t('mobileConfig.subtitle')"
         />
 
+        @if (!canManageMobile()) {
+          <ui-alert class="mt-6 block" tone="info" [title]="t('configuration.readOnlyTitle')">
+            {{ t("configuration.readOnlyMobile") }}
+          </ui-alert>
+        }
+
         <div class="mt-6">
           @switch (mobile().status) {
             @case ("error") {
@@ -191,6 +222,7 @@ import { ConfigurationService } from "./configuration.service";
               -->
               <app-mobile-config-form
                 [config]="mobile().data ?? null"
+                [readOnly]="!canManageMobile()"
                 (changed)="onMobileChanged($event)"
               />
             }
@@ -202,12 +234,27 @@ import { ConfigurationService } from "./configuration.service";
 })
 export class ConfigurationPage {
   private readonly configuration = inject(ConfigurationService);
+  private readonly session = inject(SessionStore);
 
   protected readonly t = injectT();
 
   // A plain string, because `ui-tabs` binds `model.required<string>()`. The
   // template compares against the two literals it renders.
   protected readonly tab = signal("connections");
+
+  /**
+   * Whether this session may change each half.
+   *
+   * Computed from the session's permissions, which are a signal — so a
+   * re-issued token with a different set re-renders the screen rather than
+   * leaving a stale set of buttons behind.
+   */
+  protected readonly canManageConnections = computed(() =>
+    this.session.hasPermission("connection.write")
+  );
+  protected readonly canManageMobile = computed(() =>
+    this.session.hasPermission("tenant.write")
+  );
 
   protected readonly connections = signal<Async<Connection[]>>(asyncLoading());
   protected readonly mobile = signal<Async<MobileConfig | null>>(asyncLoading());
