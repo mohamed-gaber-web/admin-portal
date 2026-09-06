@@ -16,6 +16,15 @@ import { z } from "zod";
  * password would mean one operator knowing another's credential, which defeats
  * the point of having named operators at all.
  */
+export const createPlatformAdminSchema = z
+  .object({
+    email: z.string().email(),
+    name: z.string().min(1).optional()
+  })
+  .strict();
+
+export type CreatePlatformAdminInput = z.infer<typeof createPlatformAdminSchema>;
+
 /**
  * Inviting a user into a named tenant, from the platform tier (US-073).
  *
@@ -40,15 +49,6 @@ export const invitePlatformUserSchema = z
   .strict();
 
 export type InvitePlatformUserInput = z.infer<typeof invitePlatformUserSchema>;
-
-export const createPlatformAdminSchema = z
-  .object({
-    email: z.string().email(),
-    name: z.string().min(1).optional()
-  })
-  .strict();
-
-export type CreatePlatformAdminInput = z.infer<typeof createPlatformAdminSchema>;
 
 /**
  * What creating one returns.

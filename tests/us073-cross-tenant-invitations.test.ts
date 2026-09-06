@@ -179,6 +179,45 @@ describe.skipIf(!hasDb)("US-073 - inviting a user into a named tenant", () => {
       expect(actions).toContain("role.assigned");
     });
 
+    it("keeps the roles a pending user already holds when the link is reissued", async () => {
+      const email = "pending.person@acme-invite.local";
+      const first = await request(
+        "POST",
+        API_ROUTES.platformUserInvitations,
+        operator.accessToken,
+        { tenantId: tenant.tenantId, email, role: "admin" }
+      );
+      expect(first.status).toBe(201);
+      const created = (await first.json()) as { user: { id: string } };
+
+      // Reissuing reuses the same `invited` row — there is no second account to
+      // create — so a plain role replace here would quietly revoke the role the
+      // tenant assigned, for an operator who cannot see that tenant's roles.
+      const again = await request(
+        "POST",
+        API_ROUTES.platformUserInvitations,
+        operator.accessToken,
+        { tenantId: tenant.tenantId, email, role: "viewer" }
+      );
+      expect(again.status).toBe(201);
+
+      const roles = await pool.query<{ name: string }>(
+        `SELECT r.name FROM user_role ur JOIN role r ON r.id = ur.role_id
+         WHERE ur.user_id = $1 ORDER BY r.name`,
+        [created.user.id]
+      );
+      expect(roles.rows.map((row) => row.name)).toEqual(["admin", "viewer"]);
+
+      // And nothing was revoked on the way, which is the half a caller would
+      // never see: the entry lands in the tenant's log, not in the response.
+      const revocations = await pool.query<{ id: string }>(
+        `SELECT id FROM audit_log
+         WHERE tenant_id = $1 AND action = 'role.revoked' AND entity_id = $2`,
+        [tenant.tenantId, created.user.id]
+      );
+      expect(revocations.rows).toEqual([]);
+    });
+
     it("answers 404 for a tenant that does not exist", async () => {
       const res = await request("POST", API_ROUTES.platformUserInvitations, operator.accessToken, {
         tenantId: "00000000-0000-4000-8000-000000000000",

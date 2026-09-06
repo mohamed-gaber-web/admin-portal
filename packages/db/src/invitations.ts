@@ -163,15 +163,23 @@ export class EmailAlreadyInUseError extends Error {
 /** Postgres unique-violation SQLSTATE. */
 const UNIQUE_VIOLATION = "23505";
 
+/**
+ * The index that makes an address a global identity.
+ *
+ * Named exactly, not matched by substring. `user_tenant_email_unique` is still
+ * in place — the global-email-identity migration deliberately left it — and it
+ * also has "email" in its name, so a loose match would catch the *same-tenant*
+ * race between two administrators inviting one new address at once and answer
+ * it with "cannot be invited into a second workspace", which is untrue and
+ * tells that caller nothing they can act on.
+ */
+const GLOBAL_EMAIL_INDEX = "user_email_global_unique";
+
 /** True for the global email index, and not for any other unique violation. */
 function isDuplicateEmail(err: unknown): boolean {
   if (typeof err !== "object" || err === null) return false;
   const candidate = err as { code?: unknown; constraint?: unknown };
-  return (
-    candidate.code === UNIQUE_VIOLATION &&
-    typeof candidate.constraint === "string" &&
-    candidate.constraint.includes("email")
-  );
+  return candidate.code === UNIQUE_VIOLATION && candidate.constraint === GLOBAL_EMAIL_INDEX;
 }
 
 /** Raised when a user already has a credential and cannot be re-invited. */

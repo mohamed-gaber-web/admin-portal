@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from "@angular/core";
+import { SessionStore } from "@core/auth/session.store";
 import { describeError } from "@core/http/api-error";
 import { injectT } from "@core/i18n/i18n.service";
 import { USER_STATUS_LABEL_KEYS } from "@core/i18n/label-keys";
@@ -42,10 +43,12 @@ import { PlatformService } from "./platform.service";
  * Every user across every tenant.
  *
  * The tenant column is the reason this screen exists as its own thing rather
- * than as `/users` with a wider result set: the same address can belong to
- * several tenants — `user.email` is unique per tenant, not globally — so a row
- * without its tenant is genuinely ambiguous here in a way it never is on the
- * tenant-scoped list.
+ * than as `/users` with a wider result set: on the tenant-scoped list every row
+ * belongs to the workspace you are signed in to and the column says nothing,
+ * whereas here it is the only thing that says *whose* user this is. An address
+ * identifies one person installation-wide since the global-email-identity
+ * migration, so the column answers "which customer", not "which of the several
+ * accounts on this address".
  *
  * Platform operators appear in it too. An operator needs to see who else holds
  * the tier, and filtering themselves out of their own list would be a blind
@@ -80,10 +83,19 @@ import { PlatformService } from "./platform.service";
       [title]="t('platformUsers.title')"
       [description]="t('platformUsers.subtitle')"
     >
-      <button uiButton variant="outline" (click)="inviteOpen.set(true)">
-        <ui-icon name="mail" [size]="16" />
-        {{ t("platformInvite.action") }}
-      </button>
+      @if (canInvite()) {
+        <!--
+          Gated like every other platform screen's write button. A rendering
+          decision only — POST /platform/users/invitations checks the same
+          permission against the signed claim — but without it an operator who
+          only holds platform.user.read picks a tenant, types an address and
+          learns it was never allowed from a 403.
+        -->
+        <button uiButton variant="outline" (click)="openInvite()">
+          <ui-icon name="mail" [size]="16" />
+          {{ t("platformInvite.action") }}
+        </button>
+      }
     </app-page-header>
 
     <ui-card [padded]="false">
@@ -281,10 +293,21 @@ import { PlatformService } from "./platform.service";
 export class AllUsersPage {
   private readonly platform = inject(PlatformService);
   private readonly toasts = inject(ToastService);
+  private readonly session = inject(SessionStore);
 
   protected readonly t = injectT();
   protected readonly STATUS_LABELS = USER_STATUS_LABEL_KEYS;
   protected readonly statuses = USER_STATUSES;
+
+  /**
+   * Whether this session may add somebody to a tenant.
+   *
+   * A rendering decision, like its siblings on the other platform screens. The
+   * route checks `platform.user.write` against the signed claim *and* that the
+   * caller is inside the reserved tenant, neither of which a browser can
+   * influence.
+   */
+  protected readonly canInvite = () => this.session.hasPermission("platform.user.write");
 
   protected readonly inviteOpen = signal(false);
 
@@ -324,7 +347,20 @@ export class AllUsersPage {
 
   constructor() {
     this.load();
-    this.loadTenants();
+  }
+
+  /**
+   * Opens the invite dialog, fetching the tenants the first time.
+   *
+   * Not in the constructor. `GET /platform/tenants` needs `platform.tenant.read`,
+   * which an operator holding only the user keys does not have — so loading it
+   * eagerly greeted them with a "tenant list could not be loaded" toast on every
+   * visit, for a dialog they had not opened. Fetched once and kept, so a second
+   * open is instant.
+   */
+  protected openInvite(): void {
+    if (this.tenants().length === 0) this.loadTenants();
+    this.inviteOpen.set(true);
   }
 
   private loadTenants(): void {

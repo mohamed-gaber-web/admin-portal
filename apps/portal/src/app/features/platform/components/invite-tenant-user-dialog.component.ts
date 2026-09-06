@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  effect,
   inject,
   input,
   output,
@@ -112,16 +113,17 @@ import { PlatformService } from "../platform.service";
           }
 
           <!--
-            The tenant first, because it changes what the rest of the form
-            means: the same address can belong to several tenants — email is
-            unique per tenant, not globally — so "who" is only answerable once
-            "where" is settled.
+            The tenant first, because it is the field that decides what the
+            invitation does: an address identifies one person installation-wide,
+            so naming the wrong workspace here does not create a spare account
+            somewhere harmless — it puts a real person in a customer's tenant.
           -->
           <ui-field
             [label]="t('platformInvite.tenantLabel')"
             controlId="platform-invite-tenant"
             [hint]="t('platformInvite.tenantHint')"
             [required]="true"
+            [error]="tenantError()"
           >
             <select uiSelect id="platform-invite-tenant" formControlName="tenantId">
               @for (tenant of tenants(); track tenant.id) {
@@ -222,6 +224,41 @@ export class InviteTenantUserDialogComponent {
     // an administrator would make the careless outcome the powerful one.
     role: ["viewer" as string, [Validators.required]]
   });
+
+  constructor() {
+    /**
+     * Preselects a tenant once the list arrives.
+     *
+     * The control starts empty, which matches no `<option>` — so the select
+     * renders blank, and a blank required field is one an operator can submit
+     * without noticing. They then get nothing at all: `submit()` marks the form
+     * touched and returns, and "Send" looks broken. Defaulting to the first row
+     * means the field always shows what it holds; `tenantError()` covers the
+     * case where there is no list to default from.
+     */
+    effect(
+      () => {
+        const first = this.tenants()[0];
+        if (first && !this.form.controls.tenantId.value) {
+          this.form.controls.tenantId.setValue(first.id);
+        }
+      },
+      { allowSignalWrites: true }
+    );
+  }
+
+  /**
+   * The tenant field's error, which without this could not be shown at all.
+   *
+   * `ui-field` renders nothing it is not given, so a required control with no
+   * `[error]` binding fails silently — and the state where that matters is an
+   * empty tenant list, which leaves the operator staring at a form that refuses
+   * to submit and says nothing about why.
+   */
+  protected tenantError(): string | null {
+    const field = this.form.controls.tenantId;
+    return field.touched && field.invalid ? this.t("common.required") : null;
+  }
 
   protected emailError(): string | null {
     const field = this.form.controls.email;

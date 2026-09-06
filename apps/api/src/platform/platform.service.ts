@@ -322,7 +322,19 @@ export class PlatformService {
           await setUserName(client, invitation.userId, input.name);
         }
 
-        await setUserRoles(client, invitation.userId, [input.role], actor);
+        /**
+         * Added to what they hold, not substituted for it.
+         *
+         * `issueInvitation` reuses an existing `invited` row rather than
+         * creating a second one, so reissuing a link for somebody who is
+         * already pending arrives here with roles the *tenant* assigned. A
+         * plain replace would revoke them — silently, and with a `role.revoked`
+         * entry in the tenant's own log — for an operator who, standing outside
+         * that tenant, could not see them to begin with.
+         */
+        const existing = await findUserDetail(client, invitation.userId);
+        const roles = [...new Set([...(existing?.roles ?? []), input.role])];
+        await setUserRoles(client, invitation.userId, roles, actor);
 
         const user = await findUserDetail(client, invitation.userId);
         if (!user) {
