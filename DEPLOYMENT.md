@@ -144,7 +144,7 @@ It prints an invitation link **once** (only a digest is stored) pointing at
 
 ```bash
 railway run --service <api-service> pnpm platform-admin -- \
-  --email you@example.com --portalUrl https://<your>.vercel.app
+  --email you@example.com --portal-url https://<your>.vercel.app
 ```
 
 Open the link, set a password, and you can sign in and provision tenants.
