@@ -43,6 +43,15 @@ const HTTPS_URL = /^https:\/\/[^\s]+$/;
  * shipped in a bundle and a secret fetched over TLS by anybody who knows a slug
  * are equally extractable.
  *
+ * ### Read-only without `tenant.write`
+ *
+ * A viewer reads every field and submits none of them — the controls are
+ * disabled and the button is gone. Disabled rather than hidden for the same
+ * reason as the connection card: what this screen *says* is the useful half for
+ * somebody who is not allowed to change it, and `apiBaseUrl` in particular is
+ * the answer to "where are the devices pointed", which is a support question
+ * long before it is an editing one.
+ *
  * `userAuth` **is** here and belongs here: a public client holds no secret by
  * definition, and the app cannot begin an interactive sign-in without it.
  * Clearing the block is what a tenant past the portal-native cutover looks like,
@@ -125,6 +134,7 @@ const HTTPS_URL = /^https:\/\/[^\s]+$/;
               type="checkbox"
               class="h-4 w-4 accent-primary"
               [checked]="entraEnabled()"
+              [disabled]="readOnly()"
               (change)="toggleEntra()"
             />
             {{ t("mobileConfig.userAuthEnabled") }}
@@ -214,9 +224,11 @@ const HTTPS_URL = /^https:\/\/[^\s]+$/;
       </div>
 
       <div class="flex flex-wrap items-center gap-3">
-        <button uiButton type="submit" [loading]="saving()">
-          {{ config() ? t("mobileConfig.save") : t("mobileConfig.create") }}
-        </button>
+        @if (!readOnly()) {
+          <button uiButton type="submit" [loading]="saving()">
+            {{ config() ? t("mobileConfig.save") : t("mobileConfig.create") }}
+          </button>
+        }
         @if (config()?.updatedAt; as updatedAt) {
           <span class="text-xs text-foreground-subtle">
             {{ t("mobileConfig.updatedAt", { date: i18n.formatDate(updatedAt) }) }}
@@ -235,6 +247,14 @@ export class MobileConfigFormComponent {
    * the label on the button.
    */
   readonly config = input.required<MobileConfig | null>();
+
+  /**
+   * True for a session without `tenant.write`.
+   *
+   * An input rather than a session lookup here, so the page makes the decision
+   * once and the form stays renderable both ways without a store.
+   */
+  readonly readOnly = input(false);
 
   /** Emits the configuration as the server now holds it. */
   readonly changed = output<MobileConfig>();
@@ -278,12 +298,18 @@ export class MobileConfigFormComponent {
           // faster than managing chips. Split on save.
           scopes: config?.userAuth?.scopes.join(", ") ?? ""
         });
+
+        // One template, disabled — not a second read-only rendering that could
+        // drift from the fields it mirrors.
+        if (this.readOnly()) this.form.disable({ emitEvent: false });
+        else this.form.enable({ emitEvent: false });
       },
       { allowSignalWrites: true }
     );
   }
 
   protected toggleEntra(): void {
+    if (this.readOnly()) return;
     this.entraEnabled.set(!this.entraEnabled());
   }
 
@@ -297,6 +323,11 @@ export class MobileConfigFormComponent {
   }
 
   protected save(): void {
+    // Unreachable through the UI for a viewer — the button is not rendered —
+    // and refused by the API regardless. This keeps a stray submit from
+    // producing a failure toast for something that was never offered.
+    if (this.readOnly()) return;
+
     // The three Entra fields are required together or not at all — the schema
     // and a database check constraint both say so, because a client id with no
     // authority produces a sign-in attempt against nothing and the app cannot

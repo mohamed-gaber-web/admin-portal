@@ -135,6 +135,45 @@ export function invitationTokenMatches(token: string, storedHash: string): boole
   return candidate.length === stored.length && timingSafeEqual(candidate, stored);
 }
 
+/**
+ * Raised when the address already belongs to somebody in another tenant.
+ *
+ * `user.email` became a global identity in the global-email-identity migration:
+ * one address is one person, so a consultant working for two customers needs two
+ * addresses. Without this the unique index surfaces as a driver error and a 500
+ * — which tells the caller nothing, when the actual answer is short and
+ * actionable.
+ *
+ * Distinct from `UserAlreadyActiveError`, which is about *this* tenant and has a
+ * different remedy: there, the person already has an account here and wants a
+ * password reset; here, the address is spoken for somewhere they cannot see.
+ */
+export class EmailAlreadyInUseError extends Error {
+  readonly email: string;
+
+  constructor(email: string) {
+    super(
+      `${email} is already in use. An email address identifies one person across the whole installation, so it cannot be invited into a second workspace.`
+    );
+    this.name = "EmailAlreadyInUseError";
+    this.email = email;
+  }
+}
+
+/** Postgres unique-violation SQLSTATE. */
+const UNIQUE_VIOLATION = "23505";
+
+/** True for the global email index, and not for any other unique violation. */
+function isDuplicateEmail(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const candidate = err as { code?: unknown; constraint?: unknown };
+  return (
+    candidate.code === UNIQUE_VIOLATION &&
+    typeof candidate.constraint === "string" &&
+    candidate.constraint.includes("email")
+  );
+}
+
 /** Raised when a user already has a credential and cannot be re-invited. */
 export class UserAlreadyActiveError extends Error {
   constructor(email: string) {
@@ -225,10 +264,19 @@ export async function issueInvitation(
      */
     await assertSeatAvailable(db, input.tenantId);
 
-    const created = await db.query<{ id: string }>(
-      `INSERT INTO "user" (tenant_id, email, status) VALUES ($1, $2, 'invited') RETURNING id`,
-      [input.tenantId, email]
-    );
+    let created;
+    try {
+      created = await db.query<{ id: string }>(
+        `INSERT INTO "user" (tenant_id, email, status) VALUES ($1, $2, 'invited') RETURNING id`,
+        [input.tenantId, email]
+      );
+    } catch (err) {
+      // The address belongs to somebody in another tenant. The lookup above
+      // only saw this tenant's rows — by design, since that is the question it
+      // is asking — so this is where the global index speaks.
+      if (isDuplicateEmail(err)) throw new EmailAlreadyInUseError(email);
+      throw err;
+    }
     userId = created.rows[0].id;
   }
 

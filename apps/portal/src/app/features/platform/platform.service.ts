@@ -4,6 +4,7 @@ import {
   API_ROUTES,
   activityEntrySchema,
   catalogPermissionListSchema,
+  issuedUserInvitationSchema,
   platformAdminCreatedSchema,
   platformAdminListSchema,
   planListSchema,
@@ -17,6 +18,8 @@ import {
   type CatalogPermission,
   type CreatePlatformAdminInput,
   type CreateTenantInput,
+  type InvitePlatformUserInput,
+  type IssuedUserInvitation,
   type ModuleKey,
   type PlatformAdmin,
   type PlatformAdminCreated,
@@ -122,6 +125,26 @@ export class PlatformService {
       direction: query.direction,
       status: query.status
     });
+  }
+
+  /**
+   * Invites somebody into any tenant.
+   *
+   * The tenant travels in the body, which is the one thing the tenant-scoped
+   * `UsersService.invite` cannot do and must not: there, the tenant comes from
+   * the token. Here the caller is a platform operator by definition — the API
+   * checks both the `platform.user.write` claim and that they are inside the
+   * reserved platform tenant — so naming the tenant is the point of the call.
+   *
+   * The token comes back once. Only its digest is stored, so a link that is not
+   * copied out of the dialog has to be reissued rather than recovered.
+   */
+  inviteUser(input: InvitePlatformUserInput): Observable<IssuedUserInvitation> {
+    return this.api.postValidated(
+      API_ROUTES.platformUserInvitations,
+      input,
+      issuedUserInvitationSchema
+    );
   }
 
   getUser(id: string): Observable<UserDetail | null> {

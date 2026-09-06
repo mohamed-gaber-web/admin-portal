@@ -1,5 +1,6 @@
 import { ConflictException, Inject, Injectable } from "@nestjs/common";
 import {
+  EmailAlreadyInUseError,
   findUserDetail,
   issueInvitation,
   listUsers,
@@ -145,6 +146,13 @@ export class UserService {
         };
       });
     } catch (err) {
+      if (err instanceof EmailAlreadyInUseError) {
+        // 409, like the two below: the address identifies one person across the
+        // installation, and the tenant that holds it is one this administrator
+        // cannot see. Left unhandled it surfaced as a 500 from the unique index
+        // — a broken-server answer to a question with a short, true reply.
+        throw new ConflictException({ message: err.message });
+      }
       if (err instanceof UserAlreadyActiveError) {
         // 409: the caller can act on this — the person already has an account,
         // so what they wanted was a password reset or a role change.

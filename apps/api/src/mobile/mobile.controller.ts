@@ -19,6 +19,7 @@ import {
   type SaveMobileConfigInput
 } from "@growpath/contracts";
 import { AccessTokenGuard } from "../auth/access-token.guard";
+import { PermissionGuard, RequiresPermission } from "../auth/permission.guard";
 import { actorFrom } from "../common/actor";
 import { RateLimitGuard } from "../common/rate-limit.guard";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
@@ -69,13 +70,20 @@ export class MobileBootstrapController {
  * a controller cannot be half-applied. Mixing them would put an authenticated
  * route and an unauthenticated one under one `@UseGuards`, which is precisely
  * the arrangement where someone later adds a route to the wrong half.
+ *
+ * `tenant.read` to look and `tenant.write` to change, so a viewer sees the
+ * configuration and cannot alter it. `apiBaseUrl` is the reason the split
+ * matters here more than the wording suggests: it redirects every device in the
+ * field to whatever it names, which makes this the most consequential form in
+ * the tenant and the last one a read-only account should be able to submit.
  */
 @Controller()
-@UseGuards(AccessTokenGuard)
+@UseGuards(AccessTokenGuard, PermissionGuard)
 export class MobileConfigController {
   constructor(private readonly mobile: MobileService) {}
 
   @Get(API_ROUTES.tenantMobileConfig)
+  @RequiresPermission("tenant.read")
   async find(): Promise<MobileConfig> {
     const config = await this.mobile.find();
     if (!config) {
@@ -95,6 +103,7 @@ export class MobileConfigController {
    * order to pick a verb.
    */
   @Put(API_ROUTES.tenantMobileConfig)
+  @RequiresPermission("tenant.write")
   async save(
     @Body(new ZodValidationPipe(saveMobileConfigSchema)) dto: SaveMobileConfigInput,
     @Req() request: Request,

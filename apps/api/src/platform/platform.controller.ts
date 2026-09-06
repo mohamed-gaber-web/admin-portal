@@ -19,6 +19,7 @@ import type { Request } from "express";
 import {
   API_ROUTES,
   createPlatformAdminSchema,
+  invitePlatformUserSchema,
   pageQuerySchema,
   setTenantModulesSchema,
   setTenantPlanSchema,
@@ -31,6 +32,8 @@ import {
   type ActivityEntry,
   type CatalogPermission,
   type CreatePlatformAdminInput,
+  type InvitePlatformUserInput,
+  type IssuedUserInvitation,
   type Page,
   type PageQuery,
   type Plan,
@@ -52,7 +55,10 @@ import {
   type UserSummary
 } from "@growpath/contracts";
 import {
+  EmailAlreadyInUseError,
   PlatformTenantMissingError,
+  SeatLimitReachedError,
+  UnknownRoleError,
   UserAlreadyActiveError,
   UserHasNoCredentialError
 } from "@growpath/db";
@@ -292,6 +298,60 @@ export class PlatformController {
     @Query(new ZodValidationPipe(userQuerySchema)) query: UserQuery
   ): Promise<Page<UserSummary>> {
     return this.platform.listUsers(query);
+  }
+
+  /**
+   * Invites somebody into a named tenant (US-073).
+   *
+   * The operator's answer to "add this person to Acme", where the tenant's own
+   * `POST /users/invitations` needs somebody inside Acme holding `user.write`.
+   * The token comes back once, exactly as it does on the tenant-scoped route —
+   * only a digest is stored, so the screen surfaces it at that moment or not at
+   * all.
+   */
+  @Post(API_ROUTES.platformUserInvitations)
+  @HttpCode(201)
+  @RequiresPlatformPermission("platform.user.write")
+  async inviteUser(
+    @Body(new ZodValidationPipe(invitePlatformUserSchema)) dto: InvitePlatformUserInput,
+    @Req() request: Request,
+    @Ip() ip: string
+  ): Promise<IssuedUserInvitation> {
+    let issued: IssuedUserInvitation | null;
+    try {
+      issued = await this.platform.inviteUser(dto, actorFrom(request, ip));
+    } catch (err) {
+      if (err instanceof UserAlreadyActiveError || err instanceof EmailAlreadyInUseError) {
+        /**
+         * 409 for both, and they are genuinely different conflicts.
+         *
+         * `UserAlreadyActiveError` — the person already has an account *in that
+         * tenant*, so what was wanted is a password reset or a role change.
+         * `EmailAlreadyInUseError` — the address belongs to somebody in a
+         * tenant this operator can see and the caller cannot: an address is one
+         * person across the installation, so a consultant at two customers
+         * needs two addresses. Each error carries its own explanation.
+         */
+        throw new ConflictException({ message: err.message });
+      }
+      if (err instanceof SeatLimitReachedError) {
+        // 409 as well. Nothing is broken: the tenant has used the seats it
+        // bought, and an operator is exactly the person who can raise them —
+        // the counts ride along so the screen can say by how much.
+        throw new ConflictException({ message: err.message, seats: err.usage });
+      }
+      if (err instanceof UnknownRoleError) {
+        // 400: the name is resolved inside the *target* tenant, and a tenant
+        // that renamed its roles has none by this name. Fixable by the caller.
+        throw new BadRequestException({ message: err.message, roles: err.roles });
+      }
+      throw err;
+    }
+
+    if (!issued) {
+      throw new NotFoundException({ message: "Tenant not found." });
+    }
+    return issued;
   }
 
   @Get(API_ROUTES.platformUser)

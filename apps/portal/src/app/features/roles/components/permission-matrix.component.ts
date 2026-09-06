@@ -32,6 +32,12 @@ export interface PermissionToggle {
  * The catalogue is not editable and the notice says why: `permission` is global
  * and the application holds `SELECT` on it and nothing else. Only the ticks are
  * editable, and each one is `role_permission`.
+ *
+ * `readOnly` disables the ticks for a session without `user.write`. The matrix
+ * still renders in full, because "who can do what here" is a fair question for
+ * anybody in the tenant to ask — and because the alternative, hiding it, would
+ * leave a viewer unable to find out why they cannot save the configuration
+ * screen.
  */
 @Component({
   selector: "app-permission-matrix",
@@ -93,7 +99,7 @@ export interface PermissionToggle {
                         type="checkbox"
                         class="peer sr-only"
                         [checked]="holds(role, permission.key)"
-                        [disabled]="busy()"
+                        [disabled]="busy() || readOnly()"
                         [attr.aria-label]="
                           t(role.descriptionKey) + ' — ' + t(permission.descriptionKey)
                         "
@@ -120,6 +126,8 @@ export interface PermissionToggle {
 export class PermissionMatrixComponent {
   readonly roles = input.required<readonly Role[]>();
   readonly busy = input(false);
+  /** True for a session without `user.write`; the ticks become read-only. */
+  readonly readOnly = input(false);
   readonly toggled = output<PermissionToggle>();
 
   protected readonly t = injectT();
@@ -143,6 +151,10 @@ export class PermissionMatrixComponent {
   }
 
   protected onToggle(role: Role, permission: PermissionKey, event: Event): void {
+    // Disabled inputs do not fire this, so it is belt and braces — and it keeps
+    // a programmatic toggle from emitting a change the API would refuse.
+    if (this.readOnly()) return;
+
     this.toggled.emit({
       roleId: role.id,
       permission,

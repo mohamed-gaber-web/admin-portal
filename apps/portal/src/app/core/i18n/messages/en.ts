@@ -514,6 +514,11 @@ export const en = {
   "configuration.tabConnections": "D365 connections",
   "configuration.tabMobile": "Mobile app",
   "configuration.tabModules": "Modules",
+  "configuration.readOnlyTitle": "You have view-only access",
+  "configuration.readOnlyConnections":
+    "Your role can see the D365 connections but not change them. Ask an administrator to update a credential.",
+  "configuration.readOnlyMobile":
+    "Your role can see the mobile app configuration but not change it. Ask an administrator to update it.",
 
   "ownModules.title": "Your modules",
   "ownModules.subtitle":
@@ -537,6 +542,8 @@ export const en = {
   "connections.clientSecret": "Client secret",
   "connections.clientSecretKeepHint": "Leave empty to keep the stored secret.",
   "connections.clientSecretFirstHint": "Required — no secret is stored for this environment yet.",
+  "connections.clientSecretStored": "A client secret is stored for this environment. It is never displayed.",
+  "connections.clientSecretMissing": "No client secret is stored for this environment yet.",
   "connections.secretRequired": "A client secret is required the first time.",
   "connections.guidInvalid": "Enter a GUID.",
   "connections.authorityHost": "Authority host",
@@ -597,6 +604,16 @@ export const en = {
 
   "platformUsers.title": "All users",
   "platformUsers.subtitle": "Everyone with an account, across every tenant.",
+  "platformInvite.action": "Add user",
+  "platformInvite.newTitle": "Add a user to a tenant",
+  "platformInvite.newSubtitle":
+    "Issues an invitation into the tenant you choose. They set their own password when they accept it.",
+  "platformInvite.tenantLabel": "Tenant",
+  "platformInvite.tenantHint": "Which workspace this person is being added to.",
+  "platformInvite.roleHint":
+    "The two roles every tenant is created with. A tenant that renamed its roles will refuse this, and say so.",
+  "platformInvite.failed": "The invitation could not be issued.",
+  "platformInvite.tenantsFailed": "The tenant list could not be loaded.",
   "platformUsers.searchPlaceholder": "Search by name, email or tenant",
   "platformUsers.emptyTitle": "No users match",
   "platformUsers.emptyBody": "Try a different search or clear the status filter.",
@@ -699,6 +716,9 @@ export const en = {
   "roles.permissionCount": "{granted} of {total}",
   "roles.matrixTitle": "Permissions",
   "roles.matrixSubtitle": "Tick what each role may do.",
+  "roles.readOnlyTitle": "You have view-only access",
+  "roles.readOnlyBody":
+    "Your role can see the permission matrix but not change it. Ask an administrator to adjust a role.",
   // The catalogue is global and the application holds SELECT on it and nothing
   // else, so the screen says why it cannot be edited rather than offering a
   // control the database would refuse.

@@ -13,6 +13,9 @@ import {
   listTenantModules,
   listTenants,
   listUsers,
+  issueInvitation,
+  setUserName,
+  setUserRoles,
   setTenantModules,
   setTenantPlan,
   setPlanUserLimit,
@@ -41,6 +44,8 @@ import {
   type ActivityEntry,
   type CatalogPermission,
   type CreatePlatformAdminInput,
+  type InvitePlatformUserInput,
+  type IssuedUserInvitation,
   type Page,
   type Plan,
   type ReissuedInvitation,
@@ -266,6 +271,74 @@ export class PlatformService {
       (client) => listUsers(client, request)
     );
     return { ...page, items: page.items.map(toUserSummary) };
+  }
+
+  /**
+   * Invites somebody into a tenant the operator is not signed in to (US-073).
+   *
+   * The tenant comes from the body, which on any tenant-scoped route would be
+   * the US-012 mistake. It is safe here for the reason every `/platform/*` route
+   * is: `PlatformGuard` has already established both that the caller holds
+   * `platform.user.write` and that they are inside the reserved platform tenant,
+   * neither of which a request can influence.
+   *
+   * `null` for a tenant that does not exist, which the controller turns into a
+   * 404. Checked first rather than left to the foreign key: an invalid id would
+   * otherwise surface as a constraint violation halfway through, which is a 500
+   * for what is really "you named a tenant that is not there".
+   *
+   * Everything else is the same sequence `UserService.invite` runs — one
+   * invitation, an optional name, one role — deliberately, so a user created
+   * from the platform tier is indistinguishable from one the tenant created
+   * itself. `invitedBy` is null because the operator is not a member of the
+   * tenant; the audit entry names them as the actor, which is the record that
+   * matters and the one the tenant can see.
+   */
+  async inviteUser(
+    input: InvitePlatformUserInput,
+    actor: AuditActor
+  ): Promise<IssuedUserInvitation | null> {
+    return withoutTenantScope(
+      this.pool,
+      {
+        reason:
+          "Platform administration: inviting a user into a named tenant, which by definition is not the operator's own."
+      },
+      async (client) => {
+        const tenant = await client.query<{ id: string }>(
+          "SELECT id FROM tenant WHERE id = $1",
+          [input.tenantId]
+        );
+        if (!tenant.rows[0]) return null;
+
+        const invitation = await issueInvitation(client, {
+          tenantId: input.tenantId,
+          email: input.email,
+          actor,
+          invitedBy: null
+        });
+
+        if (input.name) {
+          await setUserName(client, invitation.userId, input.name);
+        }
+
+        await setUserRoles(client, invitation.userId, [input.role], actor);
+
+        const user = await findUserDetail(client, invitation.userId);
+        if (!user) {
+          // Unreachable: the row was created in this transaction. Thrown rather
+          // than asserted so a future change that breaks the invariant fails
+          // loudly instead of returning a half-built response.
+          throw new Error("invited user vanished within its own transaction");
+        }
+
+        return {
+          user: toUserSummary(user),
+          token: invitation.token,
+          expiresAt: invitation.expiresAt.toISOString()
+        };
+      }
+    );
   }
 
   async findUser(id: string): Promise<UserDetail | null> {

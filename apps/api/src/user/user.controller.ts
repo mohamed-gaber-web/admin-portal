@@ -32,6 +32,7 @@ import {
 } from "@growpath/contracts";
 import { UnknownRoleError, UserHasNoCredentialError } from "@growpath/db";
 import { AccessTokenGuard } from "../auth/access-token.guard";
+import { PermissionGuard, RequiresPermission } from "../auth/permission.guard";
 import { actorFrom } from "../common/actor";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { UserService } from "./user.service";
@@ -43,13 +44,24 @@ import { UserService } from "./user.service";
  * or writes tenant data, and a route added later that forgot it would be
  * unscoped by default — which `withRequestTenantScope` would turn into a 500
  * rather than a leak, but a 500 is still a route nobody can use.
+ *
+ * `PermissionGuard` sits beside it for a reason that starts elsewhere: the
+ * configuration routes now refuse a `viewer`, and a viewer who could invite
+ * themselves a second account or hand their own role `connection.write` would
+ * have unlocked that in two requests. A read-only account has to be read-only
+ * about *who may act*, or it is not read-only about anything.
+ *
+ * `user.read` to look, `user.write` to change — including role assignment,
+ * which is the most consequential write here and the one the catalogue means by
+ * "invite and modify users".
  */
 @Controller()
-@UseGuards(AccessTokenGuard)
+@UseGuards(AccessTokenGuard, PermissionGuard)
 export class UserController {
   constructor(private readonly users: UserService) {}
 
   @Get(API_ROUTES.users)
+  @RequiresPermission("user.read")
   list(
     @Query(new ZodValidationPipe(userQuerySchema)) query: UserQuery
   ): Promise<Page<UserSummary>> {
@@ -64,6 +76,7 @@ export class UserController {
    * `:id` route. Kept adjacent to the list for readability.
    */
   @Post(API_ROUTES.userInvitations)
+  @RequiresPermission("user.write")
   @HttpCode(201)
   async invite(
     @Body(new ZodValidationPipe(inviteUserSchema)) dto: InviteUserInput,
@@ -83,6 +96,7 @@ export class UserController {
   }
 
   @Get(API_ROUTES.user)
+  @RequiresPermission("user.read")
   async get(@Param("id") id: string): Promise<UserDetail> {
     const user = await this.users.find(id);
     if (!user) {
@@ -94,6 +108,7 @@ export class UserController {
   }
 
   @Patch(API_ROUTES.userStatus)
+  @RequiresPermission("user.write")
   async setStatus(
     @Param("id") id: string,
     @Body(new ZodValidationPipe(updateUserStatusSchema)) dto: UpdateUserStatusInput,
@@ -120,6 +135,7 @@ export class UserController {
 
   /** Replaces the whole set of roles a user holds. */
   @Put(API_ROUTES.userRoles)
+  @RequiresPermission("user.write")
   async setRoles(
     @Param("id") id: string,
     @Body(new ZodValidationPipe(updateUserRolesSchema)) dto: UpdateUserRolesInput,

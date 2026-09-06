@@ -53,6 +53,19 @@ const GUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a
  * The one exception is a connection that has never been configured, where there
  * is nothing to keep. The field is required then, and the hint says why.
  *
+ * ### Read-only for anybody without `connection.write`
+ *
+ * A `viewer` sees the whole card — the environment, its state, when it was last
+ * checked, how long the secret has left — and can submit none of it. The fields
+ * are disabled rather than hidden, because the values *are* the information
+ * this screen exists to give: hiding them would leave a read-only user unable
+ * to answer "which Entra tenant are we pointed at", which is the most common
+ * reason to open this page at all.
+ *
+ * The API refuses the same requests independently (`connection.write` on the
+ * save and on the test), so this is what spares somebody a form that could only
+ * end in a 403 — not the thing that stops them.
+ *
  * ### Saving runs a real check
  *
  * The API tests the credential against Entra and persists only if it passes, so
@@ -103,17 +116,25 @@ const GUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a
           <ui-badge [tone]="STATE_TONES[connection().state]" [dot]="true">
             {{ t(STATE_LABELS[connection().state]) }}
           </ui-badge>
-          <button
-            uiButton
-            variant="outline"
-            size="sm"
-            type="button"
-            [loading]="testing()"
-            (click)="test()"
-          >
-            <ui-icon name="refresh" [size]="15" />
-            {{ t("connections.test") }}
-          </button>
+          @if (!readOnly()) {
+            <!--
+              Absent rather than disabled for a viewer. A test spends a live
+              credential and records its outcome, so it is a write — and a
+              greyed-out button here would read as "temporarily unavailable"
+              rather than "not yours to run".
+            -->
+            <button
+              uiButton
+              variant="outline"
+              size="sm"
+              type="button"
+              [loading]="testing()"
+              (click)="test()"
+            >
+              <ui-icon name="refresh" [size]="15" />
+              {{ t("connections.test") }}
+            </button>
+          }
         </div>
       </div>
 
@@ -192,27 +213,42 @@ const GUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a
             </ui-field>
           </div>
 
-          <ui-field
-            [label]="t('connections.clientSecret')"
-            [controlId]="'client-secret-' + connection().environmentId"
-            [hint]="
-              connection().hasClientSecret
-                ? t('connections.clientSecretKeepHint')
-                : t('connections.clientSecretFirstHint')
-            "
-            [required]="!connection().hasClientSecret"
-            [error]="errorFor('clientSecret')"
-          >
-            <input
-              uiInput
-              type="password"
-              dir="ltr"
-              [id]="'client-secret-' + connection().environmentId"
-              formControlName="clientSecret"
-              autocomplete="new-password"
-              [invalid]="!!errorFor('clientSecret')"
-            />
-          </ui-field>
+          @if (readOnly()) {
+            <!--
+              A stored secret cannot be displayed, so on a read-only card an
+              empty password box would read as "no secret configured" — which is
+              a different and often untrue statement. Say which it is instead.
+            -->
+            <p class="text-xs text-foreground-subtle">
+              {{
+                connection().hasClientSecret
+                  ? t("connections.clientSecretStored")
+                  : t("connections.clientSecretMissing")
+              }}
+            </p>
+          } @else {
+            <ui-field
+              [label]="t('connections.clientSecret')"
+              [controlId]="'client-secret-' + connection().environmentId"
+              [hint]="
+                connection().hasClientSecret
+                  ? t('connections.clientSecretKeepHint')
+                  : t('connections.clientSecretFirstHint')
+              "
+              [required]="!connection().hasClientSecret"
+              [error]="errorFor('clientSecret')"
+            >
+              <input
+                uiInput
+                type="password"
+                dir="ltr"
+                [id]="'client-secret-' + connection().environmentId"
+                formControlName="clientSecret"
+                autocomplete="new-password"
+                [invalid]="!!errorFor('clientSecret')"
+              />
+            </ui-field>
+          }
 
           <div class="grid gap-4 sm:grid-cols-2">
             <ui-field
@@ -270,14 +306,16 @@ const GUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a
             </dl>
           }
 
-          <div class="flex items-center gap-2">
-            <button uiButton size="sm" type="submit" [loading]="saving()">
-              {{ t("connections.save") }}
-            </button>
-            <span class="text-xs text-foreground-subtle">
-              {{ t("connections.saveHint") }}
-            </span>
-          </div>
+          @if (!readOnly()) {
+            <div class="flex items-center gap-2">
+              <button uiButton size="sm" type="submit" [loading]="saving()">
+                {{ t("connections.save") }}
+              </button>
+              <span class="text-xs text-foreground-subtle">
+                {{ t("connections.saveHint") }}
+              </span>
+            </div>
+          }
         </form>
       </div>
     </div>
@@ -285,6 +323,15 @@ const GUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a
 })
 export class ConnectionCardComponent {
   readonly connection = input.required<Connection>();
+
+  /**
+   * True for a session without `connection.write`.
+   *
+   * Passed in rather than read from the session here, so the page decides once
+   * what the whole screen is and every card on it agrees — and so this stays a
+   * component that can be rendered either way in a test.
+   */
+  readonly readOnly = input(false);
 
   /** Emits the connection as the server now holds it. */
   readonly changed = output<Connection>();
@@ -392,6 +439,12 @@ export class ConnectionCardComponent {
             : ""
         });
         this.lastError.set(connection.error);
+
+        // Disabled controls rather than a second read-only template. One
+        // template means the values a viewer reads are literally the ones an
+        // administrator edits, and there is no second copy to fall behind.
+        if (this.readOnly()) this.form.disable({ emitEvent: false });
+        else this.form.enable({ emitEvent: false });
       },
       { allowSignalWrites: true }
     );
@@ -407,6 +460,12 @@ export class ConnectionCardComponent {
   }
 
   protected save(): void {
+    // The button is not rendered for a viewer, so reaching this is a bug rather
+    // than an attack — the API refuses the request either way. Returning early
+    // keeps a stray submit (an Enter key in a disabled-looking form) from
+    // producing a toast that says the save failed.
+    if (this.readOnly()) return;
+
     const first = !this.connection().hasClientSecret;
     const secret = this.form.controls.clientSecret;
 
@@ -460,6 +519,8 @@ export class ConnectionCardComponent {
   }
 
   protected test(): void {
+    if (this.readOnly()) return;
+
     this.testing.set(true);
     this.lastError.set(null);
 

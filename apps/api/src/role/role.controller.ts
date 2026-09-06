@@ -24,6 +24,7 @@ import {
   type UpdateRolePermissionsInput
 } from "@growpath/contracts";
 import { AccessTokenGuard } from "../auth/access-token.guard";
+import { PermissionGuard, RequiresPermission } from "../auth/permission.guard";
 import { actorFrom } from "../common/actor";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { RoleService } from "./role.service";
@@ -35,18 +36,30 @@ import { RoleService } from "./role.service";
  * can delete its own admin role is a tenant that can lock itself out — the
  * matrix changes what a role may do, which is the part that needs to be
  * editable.
+ *
+ * Editing it takes `user.write`, which a `viewer` does not hold. That is the
+ * check that stops every other permission from being advisory: the matrix is
+ * where permissions are granted, so an account that could save this screen
+ * could give itself anything the catalogue contains — and the configuration
+ * routes' refusal of a viewer would last exactly as long as it took them to
+ * tick a box and sign in again.
+ *
+ * Reading it takes `user.read`, the same key the users list takes. The screens
+ * are two views of one subject.
  */
 @Controller()
-@UseGuards(AccessTokenGuard)
+@UseGuards(AccessTokenGuard, PermissionGuard)
 export class RoleController {
   constructor(private readonly roles: RoleService) {}
 
   @Get(API_ROUTES.roles)
+  @RequiresPermission("user.read")
   list(): Promise<Role[]> {
     return this.roles.list();
   }
 
   @Put(API_ROUTES.rolePermissions)
+  @RequiresPermission("user.write")
   async setPermissions(
     @Param("id") id: string,
     @Body(new ZodValidationPipe(updateRolePermissionsSchema))

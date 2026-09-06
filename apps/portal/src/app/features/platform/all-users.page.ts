@@ -3,6 +3,7 @@ import { describeError } from "@core/http/api-error";
 import { injectT } from "@core/i18n/i18n.service";
 import { USER_STATUS_LABEL_KEYS } from "@core/i18n/label-keys";
 import { ToastService } from "@core/notifications/toast.service";
+import { MAX_PAGE_SIZE } from "@growpath/contracts";
 import {
   DEFAULT_PAGE_SIZE,
   USER_STATUSES,
@@ -10,6 +11,7 @@ import {
   asyncLoading,
   type Async,
   type Page,
+  type TenantSummary,
   type UserStatus,
   type UserSummary
 } from "@core/models";
@@ -33,6 +35,7 @@ import {
 } from "@shared/ui";
 import { RelativeTimePipe } from "@shared/pipes/relative-time.pipe";
 import { PageHeaderComponent } from "../../layout/page-header.component";
+import { InviteTenantUserDialogComponent } from "./components/invite-tenant-user-dialog.component";
 import { PlatformService } from "./platform.service";
 
 /**
@@ -55,6 +58,7 @@ import { PlatformService } from "./platform.service";
   imports: [
     RelativeTimePipe,
     AvatarComponent,
+    InviteTenantUserDialogComponent,
     BadgeComponent,
     ButtonComponent,
     CardComponent,
@@ -75,7 +79,12 @@ import { PlatformService } from "./platform.service";
     <app-page-header
       [title]="t('platformUsers.title')"
       [description]="t('platformUsers.subtitle')"
-    />
+    >
+      <button uiButton variant="outline" (click)="inviteOpen.set(true)">
+        <ui-icon name="mail" [size]="16" />
+        {{ t("platformInvite.action") }}
+      </button>
+    </app-page-header>
 
     <ui-card [padded]="false">
       <div class="flex flex-wrap items-center gap-3 p-4">
@@ -239,6 +248,14 @@ import { PlatformService } from "./platform.service";
       }
     </ui-card>
 
+    @if (inviteOpen()) {
+      <app-invite-tenant-user-dialog
+        [tenants]="tenants()"
+        (created)="load()"
+        (closed)="inviteOpen.set(false)"
+      />
+    }
+
     @if (pending(); as request) {
       <ui-confirm-dialog
         [title]="t('platformUsers.confirmTitle', { name: request.user.name })"
@@ -269,6 +286,23 @@ export class AllUsersPage {
   protected readonly STATUS_LABELS = USER_STATUS_LABEL_KEYS;
   protected readonly statuses = USER_STATUSES;
 
+  protected readonly inviteOpen = signal(false);
+
+  /**
+   * Every tenant, for the dialog's picker.
+   *
+   * Fetched once alongside the list rather than when the dialog opens, so the
+   * select is populated the moment it appears — an empty dropdown that fills in
+   * a beat later is the kind of thing somebody submits before it settles.
+   *
+   * One page at the API's ceiling — `pageSize` is capped at 100 and a request
+   * above it silently falls back to the default, so asking for more would
+   * quietly fetch fewer. An installation that outgrows a hundred tenants needs
+   * a searchable picker rather than a bigger page, and this is where that
+   * change goes.
+   */
+  protected readonly tenants = signal<readonly TenantSummary[]>([]);
+
   protected readonly state = signal<Async<Page<UserSummary>>>(asyncLoading());
   protected readonly busy = signal(false);
   protected readonly pending = signal<{
@@ -290,6 +324,21 @@ export class AllUsersPage {
 
   constructor() {
     this.load();
+    this.loadTenants();
+  }
+
+  private loadTenants(): void {
+    this.platform.listTenants({ page: 1, pageSize: MAX_PAGE_SIZE }).subscribe({
+      next: (page) => this.tenants.set(page.items),
+      // Reported rather than swallowed. With no tenants the invite dialog can
+      // do nothing, and a picker that is empty for a reason nobody stated reads
+      // as "there are no tenants" — which would be a much stranger fact.
+      error: (error: unknown) =>
+        this.toasts.error(
+          this.t("platformInvite.tenantsFailed"),
+          describeError(error, this.t, "users.loadError")
+        )
+    });
   }
 
   protected load(): void {

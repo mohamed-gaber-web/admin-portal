@@ -298,9 +298,19 @@ export async function setUserRoles(
   if (!row) return null;
 
   const wanted = [...new Set(roleNames)];
+  /**
+   * Filtered by the user's own tenant, not left to row level security.
+   *
+   * Redundant on a scoped session — RLS already fences `role` to the current
+   * tenant — and load-bearing on an unscoped one, which is how the platform
+   * tier reaches this: `withoutTenantScope` bypasses the policy, so an
+   * unfiltered lookup would match a role of the same name in *any* tenant and
+   * attach it to a user in this one. Role names are not unique across tenants,
+   * so that is a live possibility rather than a theoretical one.
+   */
   const roles = await db.query<{ id: string; name: string }>(
-    `SELECT id, name FROM role WHERE name = ANY($1::text[])`,
-    [wanted]
+    `SELECT id, name FROM role WHERE tenant_id = $1 AND name = ANY($2::text[])`,
+    [row.tenant_id, wanted]
   );
 
   const missing = wanted.filter((name) => !roles.rows.some((role) => role.name === name));

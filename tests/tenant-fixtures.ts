@@ -4,6 +4,7 @@ import { acceptInvitation, issueInvitation } from "../packages/db/src/invitation
 import { ensurePlatformAdmin, PLATFORM_TENANT_SLUG } from "../packages/db/src/platform";
 import type { Queryable } from "../packages/db/src/tenancy";
 import { API_ROUTES } from "../packages/contracts/src/routes";
+import { PERMISSION_KEYS } from "../packages/contracts/src/schemas/role";
 
 /** Long enough to clear the 12-character minimum in `acceptInvitation`. */
 export const FIXTURE_PASSWORD = "correct-horse-battery-staple";
@@ -28,7 +29,19 @@ export interface TenantFixture {
 
 export interface SeedTenantOptions {
   companies?: string[];
-  /** Permission keys the admin should hold, granted through a role. */
+  /**
+   * Permission keys the admin should hold, granted through a role.
+   *
+   * Omit it and the admin holds the whole tenant-scoped catalogue, which is what
+   * `provisionTenant` gives a real tenant's first administrator. That default
+   * matters now that routes check the claim: a fixture admin holding nothing
+   * would be refused by `PermissionGuard` on the very endpoints these suites
+   * exist to exercise, and the failure would look like a broken endpoint rather
+   * than a fixture with no authority.
+   *
+   * Pass an explicit list to test a narrower account — `[]` for one with no
+   * permissions at all.
+   */
   permissions?: string[];
 }
 
@@ -78,9 +91,26 @@ export async function seedTenant(
 
   // Granted before sign-in, because permissions are stamped into the token at
   // sign-in rather than joined per request.
-  if (options.permissions?.length) {
-    await grantPermissions(pool, tenant.id, invitation.userId, options.permissions);
+  const granted = options.permissions ?? [...PERMISSION_KEYS];
+  if (granted.length) {
+    await grantPermissions(pool, tenant.id, invitation.userId, granted);
   }
+
+  /**
+   * The other default role, held by nobody yet.
+   *
+   * `createTenant` builds the tenant without the roles `provisionTenant` would
+   * have created, so a fixture tenant used to have whichever single role
+   * `grantPermissions` invented. That is a tenant no customer has: tests that
+   * name `viewer` — assigning it, inviting into it — failed against the fixture
+   * for a reason that says nothing about the code under test.
+   */
+  await ensureRole(
+    pool,
+    tenant.id,
+    "viewer",
+    PERMISSION_KEYS.filter((key) => key.endsWith(".read"))
+  );
 
   await acceptInvitation(pool, { token: invitation.token, password: FIXTURE_PASSWORD });
 
@@ -166,31 +196,112 @@ export async function seedPlatformAdmin(
   };
 }
 
+export interface SeedMemberOptions {
+  /** Defaults to `viewer`, the read-only role provisioning creates. */
+  role?: string;
+  /** Defaults to the read half of the catalogue, which is what a viewer holds. */
+  permissions?: string[];
+}
+
+export interface MemberFixture {
+  userId: string;
+  email: string;
+  accessToken: string;
+}
+
 /**
- * Gives a user the named permissions through an `admin` role.
+ * A second user inside an existing tenant, holding a narrower role.
+ *
+ * The point of it is the thing one tenant with one all-powerful admin cannot
+ * express: whether a route distinguishes between two members of the *same*
+ * tenant. Cross-tenant isolation is a different question with a different
+ * answer (404, not 403), and a second tenant cannot stand in for this one.
+ *
+ * Built through invitation → accept → sign in, like `seedTenant`, so the token
+ * carries the permissions the real sign-in path stamped onto it rather than a
+ * set this file decided.
+ */
+export async function seedMember(
+  pool: Pool,
+  baseUrl: string,
+  tenant: Pick<TenantFixture, "tenantId" | "slug">,
+  options: SeedMemberOptions = {}
+): Promise<MemberFixture> {
+  const role = options.role ?? "viewer";
+  const permissions =
+    options.permissions ?? PERMISSION_KEYS.filter((key) => key.endsWith(".read"));
+  const email = `${role}@${tenant.slug}.local`;
+
+  const invitation = await issueInvitation(pool, {
+    tenantId: tenant.tenantId,
+    email,
+    actor: { label: "platform-admin" }
+  });
+
+  await grantPermissions(pool, tenant.tenantId, invitation.userId, permissions, role);
+  await acceptInvitation(pool, { token: invitation.token, password: FIXTURE_PASSWORD });
+
+  const res = await fetch(`${baseUrl}${API_ROUTES.login}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, password: FIXTURE_PASSWORD })
+  });
+  if (res.status !== 200) {
+    throw new Error(`fixture sign-in failed for ${email}: ${res.status} ${await res.text()}`);
+  }
+  const body = (await res.json()) as { accessToken: string };
+
+  return { userId: invitation.userId, email, accessToken: body.accessToken };
+}
+
+/**
+ * Gives a user the named permissions through a role.
  *
  * The full chain — permission catalogue, role, role_permission, user_role — is
  * what `loadPermissions` reads, so building it here is what makes a permission
  * claim in a token mean something.
+ *
+ * The role name is a parameter rather than always `admin`, because a fixture
+ * that granted a read-only set through a role called `admin` would be testing
+ * the permission check while lying about who holds it — and the next person
+ * reading the row would reasonably disbelieve the test.
  */
 export async function grantPermissions(
   pool: Pool,
   tenantId: string,
   userId: string,
-  keys: string[]
+  keys: readonly string[],
+  roleName = "admin"
 ): Promise<void> {
-  const role = await pool.query<{ id: string }>(
-    `INSERT INTO role (tenant_id, name) VALUES ($1, 'admin')
-     ON CONFLICT (tenant_id, name) DO UPDATE SET name = EXCLUDED.name
-     RETURNING id`,
-    [tenantId]
-  );
-  const roleId = role.rows[0].id;
+  const roleId = await ensureRole(pool, tenantId, roleName, keys);
 
   await pool.query(
-    `INSERT INTO user_role (tenant_id, user_id, role_id) VALUES ($1, $2, $3)`,
+    `INSERT INTO user_role (tenant_id, user_id, role_id) VALUES ($1, $2, $3)
+     ON CONFLICT DO NOTHING`,
     [tenantId, userId, roleId]
   );
+}
+
+/**
+ * Creates (or tops up) one role and the permissions it holds, and returns its id.
+ *
+ * Split out of `grantPermissions` so a role can exist without anybody holding
+ * it — which is what a freshly provisioned tenant's `viewer` looks like, and
+ * what a test naming that role needs to be there.
+ */
+export async function ensureRole(
+  pool: Pool,
+  tenantId: string,
+  roleName: string,
+  keys: readonly string[]
+): Promise<string> {
+  const role = await pool.query<{ id: string }>(
+    `INSERT INTO role (tenant_id, name) VALUES ($1, $2)
+     ON CONFLICT (tenant_id, name) DO UPDATE SET name = EXCLUDED.name
+     RETURNING id`,
+    [tenantId, roleName]
+  );
+  const roleId = role.rows[0].id;
 
   for (const key of keys) {
     const permission = await pool.query<{ id: string }>(
@@ -205,4 +316,6 @@ export async function grantPermissions(
       [tenantId, roleId, permission.rows[0].id]
     );
   }
+
+  return roleId;
 }

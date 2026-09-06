@@ -490,6 +490,17 @@ export const DECLARED_ROUTES: DeclaredRoute[] = [
     note: "Every user across every tenant, each row carrying the tenant it belongs to. Platform operators are included rather than filtered out: an operator needs to see who else holds the tier."
   },
   {
+    method: "POST",
+    path: "/platform/users/invitations",
+    visibility: "platform",
+    note: "Invites a user into a named tenant (US-073). The tenant is in the body, which on a tenant-scoped route would be the US-012 mistake and is the whole point here: an operator is by definition outside the tenant they are adding somebody to. Broader than POST /platform/tenants/:id/admin-invitation, which only reissues the first administrator's link for a tenant nobody can sign in to. The role is a name resolved inside the target tenant, so it cannot attach another tenant's role.",
+    // Same pair as the tenant-scoped invitation, and written into the target
+    // tenant's log naming the operator: from inside that tenant this is a
+    // person added by somebody they cannot see, and an unattributed entry would
+    // leave the platform tier unaccountable to the people it acts on.
+    audits: ["invitation.issued", "role.assigned"]
+  },
+  {
     method: "GET",
     path: "/platform/users/:id",
     visibility: "platform",

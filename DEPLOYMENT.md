@@ -67,20 +67,47 @@ rather than one, so rotating the D365 key does not touch anybody's MFA.
 
 ## 3. Portal (Vercel)
 
-Import the repo. `vercel.json` in the root sets everything except the API URL.
+Import the repo. `vercel.json` sets everything except the API URL.
 
 ```
 Build     pnpm --filter @growpath/portal... build
 Install   pnpm install --frozen-lockfile
-Output    apps/portal/dist/browser
+Output    apps/portal/dist/browser   (Root Directory empty)
+          dist/browser               (Root Directory apps/portal)
 Framework Other
 ```
+
+### There are two `vercel.json` files, on purpose
+
+Vercel reads `vercel.json` **only from the project's Root Directory**, and it
+resolves `outputDirectory` relative to that same directory. So the correct
+output path depends on a dashboard setting:
+
+| Root Directory | File Vercel reads | `outputDirectory` |
+| --- | --- | --- |
+| *(empty, repo root)* | `vercel.json` | `apps/portal/dist/browser` |
+| `apps/portal` | `apps/portal/vercel.json` | `dist/browser` |
+
+Both files exist so the deploy works either way. Getting this wrong fails the
+build *after* Angular has succeeded, with a misleading message — Vercel prints
+only the last path segment:
+
+```
+Error: No Output Directory named "browser" found after the Build completed.
+```
+
+That means the directory was not where Vercel looked, not that Angular failed to
+emit it. Check `Output location:` in the build log against the Root Directory.
+
+**Keep the `rewrites` in both files in sync.** They carry the `/api` proxy and
+the SPA fallback; a build that reads the wrong file still deploys, but every
+deep link 404s and every API call fails.
 
 **Edit `vercel.json` and replace the placeholder** with your Railway public
 domain:
 
 ```json
-{ "source": "/api/:path*", "destination": "https://REPLACE-ME.up.railway.app/:path*" }
+{ "source": "/api/:path*", "destination": "https://admin-portal-production-db9b.up.railway.app/:path*" }
 ```
 
 ### Why the `/api` prefix exists
@@ -117,7 +144,7 @@ It prints an invitation link **once** (only a digest is stored) pointing at
 
 ```bash
 railway run --service <api-service> pnpm platform-admin -- \
-  --email you@example.com --portalUrl https://<your>.vercel.app
+  --email you@example.com --portal-url https://<your>.vercel.app
 ```
 
 Open the link, set a password, and you can sign in and provision tenants.

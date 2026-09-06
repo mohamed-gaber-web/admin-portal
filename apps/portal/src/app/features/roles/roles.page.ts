@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from "@angular/core";
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from "@angular/core";
+import { SessionStore } from "@core/auth/session.store";
 import { describeError } from "@core/http/api-error";
 import { I18nService, injectT } from "@core/i18n/i18n.service";
 import { ToastService } from "@core/notifications/toast.service";
@@ -33,6 +34,12 @@ import { RolesService } from "./roles.service";
  * many people hold them", and the matrix for "who can do what". The table
  * answers the first question at a glance and the matrix answers the second
  * without either having to compromise for the other.
+ *
+ * Both are readable by anyone in the tenant; changing a tick takes `user.write`,
+ * which the API checks on `PUT /roles/:id/permissions`. Without it the matrix
+ * renders disabled and says so, rather than offering a checkbox whose only
+ * outcome is a 403 — and rather than hiding the screen, which would leave a
+ * viewer with no way to see what their role actually holds.
  */
 @Component({
   selector: "app-roles-page",
@@ -144,9 +151,16 @@ import { RolesService } from "./roles.service";
                 [description]="t('roles.matrixSubtitle')"
               />
               <div class="mt-6">
+                @if (!canManage()) {
+                  <ui-alert class="mb-4 block" tone="info" [title]="t('roles.readOnlyTitle')">
+                    {{ t("roles.readOnlyBody") }}
+                  </ui-alert>
+                }
+
                 <app-permission-matrix
                   [roles]="state().data!"
                   [busy]="saving()"
+                  [readOnly]="!canManage()"
                   (toggled)="onToggle($event)"
                 />
               </div>
@@ -160,10 +174,14 @@ import { RolesService } from "./roles.service";
 export class RolesPage {
   private readonly roles = inject(RolesService);
   private readonly toasts = inject(ToastService);
+  private readonly session = inject(SessionStore);
 
   protected readonly t = injectT();
   protected readonly i18n = inject(I18nService);
   protected readonly catalogueSize = PERMISSION_CATALOGUE.length;
+
+  /** Whether this session may change a role's permissions. */
+  protected readonly canManage = computed(() => this.session.hasPermission("user.write"));
 
   protected readonly state = signal<Async<Role[]>>(asyncLoading());
   protected readonly saving = signal(false);
@@ -187,7 +205,7 @@ export class RolesPage {
     // toggle, so it needs the role as it currently stands. Taken from the
     // loaded state rather than refetched — the matrix is showing it already.
     const role = (this.state().data ?? []).find((entry) => entry.id === roleId);
-    if (!role) return;
+    if (!role || !this.canManage()) return;
 
     this.failure.set(null);
     this.saving.set(true);
