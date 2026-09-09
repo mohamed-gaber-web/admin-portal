@@ -55,6 +55,8 @@ const toSummary = (record: TenantSummaryRecord): TenantSummary => ({
   userCount: record.userCount,
   userLimit: record.userLimit,
   seatLimitOverride: record.seatLimitOverride,
+  contractStartDate: record.contractStartDate,
+  contractEndDate: record.contractEndDate,
   adminEmail: record.adminEmail,
   createdAt: record.createdAt.toISOString()
 });

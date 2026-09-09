@@ -87,11 +87,48 @@ const sources = collectSources(join(PORTAL_SRC, "app")).filter(
 );
 const allSource = sources.map((file) => readFileSync(file, "utf8")).join("\n");
 
+/**
+ * Plural families are referenced by their base, not by their members.
+ *
+ * `I18nService.plural()` builds `${base}.${category}` at runtime from whatever
+ * `Intl.PluralRules` selects, so `contract.dayCount.few` never appears as a
+ * literal anywhere — and Arabic needs all six categories declared whether or
+ * not English ever selects them. Checking each member as its own key reported
+ * every family as five-sixths dead.
+ *
+ * The check stays exact rather than becoming a guess: a member counts as used
+ * only when its base is referenced as a literal, so an entire unused family is
+ * still reported (against its `.other` member, which always exists).
+ */
+const PLURAL_CATEGORIES = ["zero", "one", "two", "few", "many", "other"];
+
+const pluralBase = (key) => {
+  const dot = key.lastIndexOf(".");
+  if (dot === -1) return null;
+  const category = key.slice(dot + 1);
+  if (!PLURAL_CATEGORIES.includes(category)) return null;
+
+  const base = key.slice(0, dot);
+  // Only a real family — one that declares `.other`, which `plural()` falls
+  // back to — so an ordinary key that happens to end in `.one` is unaffected.
+  return enKeys.has(`${base}.other`) ? base : null;
+};
+
+const referenced = (key) =>
+  allSource.includes(`"${key}"`) || allSource.includes(`'${key}'`);
+
 for (const key of enKeys) {
   // Every key is referenced as a literal — the codebase builds no key by
-  // interpolation, which is what makes this check exact rather than a guess.
-  if (!allSource.includes(`"${key}"`) && !allSource.includes(`'${key}'`)) {
-    fail("unused-key", `"${key}" is defined but never used`);
+  // interpolation except through `plural()`, whose base is itself a literal.
+  // That is what keeps this check exact rather than a guess.
+  const base = pluralBase(key);
+  if (base ? !referenced(base) : !referenced(key)) {
+    fail(
+      "unused-key",
+      base
+        ? `"${key}" is defined but its plural base "${base}" is never used`
+        : `"${key}" is defined but never used`
+    );
   }
 }
 

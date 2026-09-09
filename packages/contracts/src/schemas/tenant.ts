@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { isoDateSchema } from "./contract";
+import { moduleKeySchema } from "./module-keys";
 import { pageSchema } from "./page";
 
 /**
@@ -58,7 +60,28 @@ export const createTenantSchema = z.object({
    * concession on top of a package, and asking for it on the create form would
    * put the rarest decision in front of every tenant that will never need one.
    */
-  plan: tenantPlanSchema.optional()
+  plan: tenantPlanSchema.optional(),
+  /**
+   * The modules the tenant starts entitled to.
+   *
+   * Optional, and an omitted list is not the same as an empty one: omitting it
+   * grants nothing and writes no entitlement audit entry, which is exactly what
+   * every caller written before this field did and what the API's own tests
+   * still do. Sending `[]` is an explicit "this customer has bought nothing
+   * yet", and provisioning treats the two identically at the database — the
+   * difference is only that one was a decision.
+   *
+   * Here rather than left to a follow-up `PUT /platform/tenants/:id/modules`
+   * because the two orders are not equivalent. Provisioning issues the first
+   * admin's invitation as its last act; a tenant created with no modules is one
+   * whose administrator can accept that invitation, sign in on the mobile app,
+   * and find an empty sidebar before an operator has got to the second screen.
+   * Granting inside the same transaction removes that window.
+   *
+   * Unknown keys cannot arrive through this schema, but `setTenantModules`
+   * tolerates them anyway — see the note there on catalogues that drift.
+   */
+  modules: z.array(moduleKeySchema).optional()
 });
 
 export type CreateTenantInput = z.infer<typeof createTenantSchema>;
@@ -80,6 +103,16 @@ export const provisionedTenantSchema = z.object({
       name: z.string()
     })
   ),
+  /**
+   * The modules actually granted: what the create form asked for, intersected
+   * with the catalogue the database holds.
+   *
+   * Returned rather than assumed, so a portal built against a catalogue the
+   * database has not caught up with can tell that a key it sent was dropped.
+   * Silently granting less than an operator ticked is the failure worth being
+   * able to see.
+   */
+  modules: z.array(z.string()),
   /**
    * The first admin's invitation (US-020).
    *
@@ -158,6 +191,20 @@ export const tenantSummarySchema = z
      * is what changes it.
      */
     userLimit: z.number().int().positive(),
+    /**
+     * The contract period, when one has been recorded.
+     *
+     * On the summary as well as the detail, so the tenant list can flag a
+     * customer whose term is nearly up. An operator who has to open thirteen
+     * profiles to find the two renewals due this month will not do it.
+     *
+     * Calendar dates rather than instants — see the contract-period migration
+     * for why "expires 31 December" must not depend on a timezone. Both are
+     * independently nullable: null means not recorded, which is the state every
+     * tenant created before this feature is in.
+     */
+    contractStartDate: isoDateSchema.nullable(),
+    contractEndDate: isoDateSchema.nullable(),
     /**
      * The tenant's own negotiated allowance, when it has one.
      *

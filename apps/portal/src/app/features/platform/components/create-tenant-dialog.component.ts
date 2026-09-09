@@ -1,6 +1,18 @@
-import { ChangeDetectionStrategy, Component, inject, output, signal } from "@angular/core";
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  output,
+  signal
+} from "@angular/core";
 import { FormBuilder, ReactiveFormsModule, Validators } from "@angular/forms";
-import { DEFAULT_TENANT_PLAN, type ProvisionedTenant } from "@growpath/contracts";
+import {
+  DEFAULT_TENANT_PLAN,
+  isModuleKey,
+  type ModuleKey,
+  type ProvisionedTenant
+} from "@growpath/contracts";
 import { describeError } from "@core/http/api-error";
 import { I18nService, injectT } from "@core/i18n/i18n.service";
 import { ToastService } from "@core/notifications/toast.service";
@@ -13,7 +25,11 @@ import {
   ModalComponent,
   SelectDirective
 } from "@shared/ui";
-import { TENANT_PLAN_LABEL_KEYS } from "@core/i18n/label-keys";
+import {
+  CATALOGUE_AS_PICKABLE,
+  ModulePickerComponent
+} from "@shared/components/module-picker.component";
+import { MODULE_LABEL_KEYS, TENANT_PLAN_LABEL_KEYS } from "@core/i18n/label-keys";
 import { TENANT_PLANS, type TenantPlan } from "@core/models";
 import { PlatformService } from "../platform.service";
 
@@ -46,6 +62,7 @@ const SLUG_PATTERN = /^[a-z0-9-]+$/;
     IconComponent,
     InputDirective,
     ModalComponent,
+    ModulePickerComponent,
     SelectDirective
   ],
   template: `
@@ -62,6 +79,22 @@ const SLUG_PATTERN = /^[a-z0-9-]+$/;
     >
       @if (provisioned(); as result) {
         <div class="space-y-4">
+          <!--
+            Modules that were ticked and did not come back.
+
+            The API returns what it actually granted, which is the intersection
+            of the request and the module table. They differ when the portal
+            is deployed ahead of the migration that installs a key: every key
+            passes validation, none of the new ones match a row, and the tenant
+            is created holding nothing. Without this the operator sees an
+            ordinary success dialog, and finds out weeks later.
+          -->
+          @if (droppedModules(); as dropped) {
+            <ui-alert tone="warning" [title]="t('createTenant.modulesDroppedTitle')">
+              {{ t("createTenant.modulesDroppedBody", { modules: dropped }) }}
+            </ui-alert>
+          }
+
           <ui-alert tone="warning" [title]="t('createTenant.tokenWarningTitle')">
             {{ t("createTenant.tokenWarningBody") }}
           </ui-alert>
@@ -156,6 +189,30 @@ const SLUG_PATTERN = /^[a-z0-9-]+$/;
           >
             <input uiInput id="tenant-admin" type="email" formControlName="adminEmail" />
           </ui-field>
+
+          <!--
+            Which modules the customer has bought.
+
+            Here rather than on the profile screen afterwards because
+            provisioning issues the first admin invitation as its last act: a
+            tenant created with nothing granted is one whose administrator can
+            accept that invitation and sign in to an empty mobile sidebar before
+            an operator has reached the second screen.
+
+            Starts empty rather than fully ticked. A default of everything would
+            make the careless path the generous one, and entitlements are what
+            stop a customer using what nobody sold them.
+          -->
+          <div class="space-y-2 border-t border-border pt-4">
+            <div>
+              <p class="text-sm font-medium text-foreground">{{ t("createTenant.modules") }}</p>
+              <p class="mt-0.5 text-xs text-foreground-muted">
+                {{ t("createTenant.modulesHint") }}
+              </p>
+            </div>
+
+            <app-module-picker [modules]="CATALOGUE" [(selected)]="modules" />
+          </div>
         </form>
       }
 
@@ -217,6 +274,61 @@ export class CreateTenantDialogComponent {
 
   protected readonly PLANS = TENANT_PLANS;
 
+  /**
+   * The catalogue, from the contracts package rather than from a fetch.
+   *
+   * There is no tenant yet, so `GET /platform/tenants/:id/modules` — the call
+   * the profile screen makes — has no id to be given. The compile-time list is
+   * the same thirteen keys in the same order, and the labels both screens render
+   * come from the i18n catalogue either way.
+   */
+  protected readonly CATALOGUE = CATALOGUE_AS_PICKABLE;
+
+  /**
+   * The chosen modules.
+   *
+   * A signal beside the form rather than a control inside it. The reactive form
+   * holds four scalars that each map to one input; a set of keys edited by a
+   * child component through a two-way binding is not that shape, and modelling
+   * it as a `FormControl<string[]>` would buy validation nothing has a rule for
+   * and dirty-tracking this dialog does not use.
+   */
+  protected readonly modules = signal<readonly string[]>([]);
+
+  /**
+   * What the last submit asked for, kept so the response can be checked
+   * against it.
+   *
+   * Separate from `modules` because the picker is still editable in principle
+   * and this has to be the set that was actually sent, not the set on screen.
+   */
+  private readonly requested = signal<readonly string[]>([]);
+
+  /**
+   * Modules that were requested and not granted, as a readable list — or null
+   * when everything asked for came back.
+   *
+   * Labelled through the same i18n catalogue the picker uses, falling back to
+   * the raw key: a key this build cannot name is precisely the case where the
+   * portal and the database disagree, so the key itself is the useful thing to
+   * show.
+   */
+  protected readonly droppedModules = computed(() => {
+    const result = this.provisioned();
+    if (!result) return null;
+
+    const granted = new Set(result.modules);
+    const dropped = this.requested().filter((key) => !granted.has(key));
+    if (dropped.length === 0) return null;
+
+    return dropped
+      .map((key) => {
+        const label = MODULE_LABEL_KEYS[key as ModuleKey];
+        return label ? this.t(label) : key;
+      })
+      .join(this.t("common.listSeparator"));
+  });
+
   /** Seats per package, once the catalogue arrives. Empty until then. */
   private readonly seats = signal<Map<string, number>>(new Map());
 
@@ -276,12 +388,21 @@ export class CreateTenantDialogComponent {
     }
 
     const { name, slug, plan, adminEmail } = this.form.getRawValue();
+    // Narrowed to keys this build knows. The picker only offers catalogue keys,
+    // so this filters nothing today — it is what keeps the request matching the
+    // schema if the two ever diverge.
+    const modules = this.modules().filter((key): key is ModuleKey => isModuleKey(key));
+
+    this.requested.set(modules);
     this.submitting.set(true);
 
     this.platform
-      // Omitted rather than sent empty: the schema marks it optional, and ""
-      // would fail its email check.
-      .createTenant({ name, slug, plan, ...(adminEmail ? { adminEmail } : {}) })
+      // `adminEmail` is omitted rather than sent empty: the schema marks it
+      // optional, and "" would fail its email check. `modules` is sent even when
+      // empty, because an operator who ticked nothing has said something — and
+      // the API distinguishes an absent list from a deliberate one only in what
+      // it writes to the audit log.
+      .createTenant({ name, slug, plan, modules, ...(adminEmail ? { adminEmail } : {}) })
       .subscribe({
         next: (result) => {
           this.submitting.set(false);

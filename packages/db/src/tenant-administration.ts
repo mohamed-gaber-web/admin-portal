@@ -39,6 +39,16 @@ export interface TenantSummary {
   userLimit: number;
   /** The tenant's own negotiated allowance, or null when it inherits its package. */
   seatLimitOverride: number | null;
+  /**
+   * The contract period, as `YYYY-MM-DD`, or null where not recorded.
+   *
+   * Strings rather than `Date`, unlike every other date on this record. These
+   * are `date` columns, not `timestamptz`: a calendar day, not an instant. Wrapping
+   * one in a `Date` gives it a midnight and a timezone it does not have, and the
+   * first thing that formats it in a zone behind UTC renders the previous day.
+   */
+  contractStartDate: string | null;
+  contractEndDate: string | null;
   /** The tenant's admin address. Empty when the tenant has no users at all. */
   adminEmail: string;
   createdAt: Date;
@@ -151,6 +161,8 @@ interface TenantSummaryRow {
   user_count: string;
   user_limit: string;
   seat_limit_override: number | null;
+  contract_start_date: string | null;
+  contract_end_date: string | null;
   admin_email: string | null;
   created_at: Date;
   total_count: string;
@@ -165,6 +177,8 @@ const toSummary = (row: TenantSummaryRow): TenantSummary => ({
   userCount: Number(row.user_count),
   userLimit: Number(row.user_limit),
   seatLimitOverride: row.seat_limit_override === null ? null : Number(row.seat_limit_override),
+  contractStartDate: row.contract_start_date,
+  contractEndDate: row.contract_end_date,
   adminEmail: row.admin_email ?? "",
   createdAt: row.created_at
 });
@@ -200,6 +214,11 @@ export async function listTenants(
   const res = await db.query<TenantSummaryRow>(
     `SELECT t.id, t.name, t.slug, t.plan, t.created_at,
             t.seat_limit AS seat_limit_override,
+            -- to_char rather than the raw column: node-postgres parses a date
+            -- column into a local-midnight Date, which is the one representation
+            -- these must never take. See the note on the record type.
+            to_char(t.contract_start_date, 'YYYY-MM-DD') AS contract_start_date,
+            to_char(t.contract_end_date, 'YYYY-MM-DD') AS contract_end_date,
             ${SEAT_LIMIT_EXPRESSION} AS user_limit,
             ${ADMIN_EMAIL_EXPRESSION} AS admin_email,
             ${STATUS_EXPRESSION} AS status,
@@ -241,6 +260,11 @@ export async function findTenantDetail(
   const res = await db.query<TenantDetailRow>(
     `SELECT t.id, t.name, t.slug, t.plan, t.created_at,
             t.seat_limit AS seat_limit_override,
+            -- to_char rather than the raw column: node-postgres parses a date
+            -- column into a local-midnight Date, which is the one representation
+            -- these must never take. See the note on the record type.
+            to_char(t.contract_start_date, 'YYYY-MM-DD') AS contract_start_date,
+            to_char(t.contract_end_date, 'YYYY-MM-DD') AS contract_end_date,
             ${SEAT_LIMIT_EXPRESSION} AS user_limit,
             ${ADMIN_EMAIL_EXPRESSION} AS admin_email,
             ${STATUS_EXPRESSION} AS status,
@@ -431,6 +455,166 @@ const UUID_PATTERN =
  */
 export function isUuid(value: string): boolean {
   return UUID_PATTERN.test(value);
+}
+
+/**
+ * Records a Dynamics environment for a tenant.
+ *
+ * The missing half of provisioning. `provisionTenantOnClient` creates a tenant
+ * with no environment, `findErpBlocker` reports `no_environment`, and every
+ * user of that tenant is sent to the mobile app's setup screen — while nothing
+ * in the API or the portal could create the row that clears it. The function in
+ * `tenancy.ts` that inserts one has only ever been called by the seed.
+ *
+ * Distinct from that one rather than a call to it, for two reasons: this
+ * accepts `kind`, and this writes an audit entry. The seed helper deliberately
+ * does neither — a seed is not somebody's decision, and attributing one to an
+ * actor would put fiction in the log.
+ *
+ * Carries no credential. `client_id` and the sealed secret are attached
+ * afterwards by `PUT /connections/:id`, which verifies them against Entra
+ * before persisting, so `connection_state` starts at its column default of
+ * `not_configured` and only a real token request can move it.
+ *
+ * Returns null for an unknown tenant, so the caller answers 404 rather than
+ * failing on a foreign key.
+ */
+export async function createTenantEnvironment(
+  db: Queryable,
+  input: {
+    tenantId: string;
+    name: string;
+    url: string;
+    /** Omitted takes the column default, `sandbox`. */
+    kind?: string;
+    actor: AuditActor;
+  }
+): Promise<{ id: string; name: string; url: string; kind: string } | null> {
+  if (!isUuid(input.tenantId)) return null;
+
+  const tenant = await db.query<{ id: string }>("SELECT id FROM tenant WHERE id = $1", [
+    input.tenantId
+  ]);
+  if (!tenant.rows[0]) return null;
+
+  /*
+   * Two statements rather than one with a coalesce, matching how provisioning
+   * handles an omitted plan: leaving `kind` out of the INSERT lets the
+   * *database's* default apply, so there is one place the default is written
+   * down rather than a copy here that can drift from it.
+   */
+  const res = input.kind
+    ? await db.query<{ id: string; name: string; url: string; kind: string }>(
+        `INSERT INTO d365_environment (tenant_id, name, url, kind)
+         VALUES ($1, $2, $3, $4) RETURNING id, name, url, kind`,
+        [input.tenantId, input.name, input.url, input.kind]
+      )
+    : await db.query<{ id: string; name: string; url: string; kind: string }>(
+        `INSERT INTO d365_environment (tenant_id, name, url)
+         VALUES ($1, $2, $3) RETURNING id, name, url, kind`,
+        [input.tenantId, input.name, input.url]
+      );
+
+  const environment = res.rows[0];
+
+  await recordAuditEntry(db, {
+    tenantId: input.tenantId,
+    action: "environment.created",
+    entityType: "d365_environment",
+    entityId: environment.id,
+    actor: input.actor,
+    before: null,
+    after: { name: environment.name, url: environment.url, kind: environment.kind }
+  });
+
+  return environment;
+}
+
+/**
+ * Records a legal entity inside one of the tenant's environments.
+ *
+ * The step after the one above, and needed just as much: an environment with a
+ * working credential and no company still leaves `findErpBlocker` reporting
+ * `no_company`, because there is nothing to scope an OData query to. Adding
+ * only the environment would move the dead end rather than remove it.
+ *
+ * The composite foreign key on `(environment_id, tenant_id)` is what stops a
+ * company being attached to another tenant's environment — the check is in the
+ * database rather than in a `WHERE` here, so it holds against every caller
+ * rather than against this one.
+ *
+ * Returns null for an unknown tenant, and throws
+ * `EnvironmentNotInTenantError` when the environment belongs to somebody else
+ * or does not exist, so the caller can tell those two apart.
+ */
+export async function createTenantCompany(
+  db: Queryable,
+  input: {
+    tenantId: string;
+    environmentId: string;
+    name: string;
+    dataAreaId: string;
+    actor: AuditActor;
+  }
+): Promise<{ id: string; name: string; dataAreaId: string; environmentId: string } | null> {
+  if (!isUuid(input.tenantId) || !isUuid(input.environmentId)) return null;
+
+  const tenant = await db.query<{ id: string }>("SELECT id FROM tenant WHERE id = $1", [
+    input.tenantId
+  ]);
+  if (!tenant.rows[0]) return null;
+
+  /*
+   * Checked here as well as by the foreign key, so the caller gets a message
+   * naming the problem instead of a constraint violation. The key remains the
+   * authority — this is the better error, not the security boundary.
+   */
+  const environment = await db.query<{ id: string }>(
+    "SELECT id FROM d365_environment WHERE id = $1 AND tenant_id = $2",
+    [input.environmentId, input.tenantId]
+  );
+  if (!environment.rows[0]) {
+    throw new EnvironmentNotInTenantError(input.environmentId);
+  }
+
+  const res = await db.query<{
+    id: string;
+    name: string;
+    data_area_id: string;
+    environment_id: string;
+  }>(
+    `INSERT INTO company (tenant_id, environment_id, name, data_area_id)
+     VALUES ($1, $2, $3, $4) RETURNING id, name, data_area_id, environment_id`,
+    [input.tenantId, input.environmentId, input.name, input.dataAreaId]
+  );
+
+  const company = res.rows[0];
+
+  await recordAuditEntry(db, {
+    tenantId: input.tenantId,
+    action: "company.created",
+    entityType: "company",
+    entityId: company.id,
+    actor: input.actor,
+    before: null,
+    after: { name: company.name, dataAreaId: company.data_area_id },
+    context: { environmentId: company.environment_id }
+  });
+
+  return {
+    id: company.id,
+    name: company.name,
+    dataAreaId: company.data_area_id,
+    environmentId: company.environment_id
+  };
+}
+
+/** Raised when a company names an environment the tenant does not own. */
+export class EnvironmentNotInTenantError extends Error {
+  constructor(readonly environmentId: string) {
+    super(`No environment ${environmentId} belongs to this tenant.`);
+    this.name = "EnvironmentNotInTenantError";
+  }
 }
 
 /**

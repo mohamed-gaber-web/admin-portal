@@ -21,6 +21,9 @@ import {
   createPlatformAdminSchema,
   invitePlatformUserSchema,
   pageQuerySchema,
+  createCompanySchema,
+  createEnvironmentSchema,
+  setTenantContractSchema,
   setTenantModulesSchema,
   setTenantPlanSchema,
   updatePlanSchema,
@@ -40,6 +43,9 @@ import {
   type PlatformAdmin,
   type PlatformAdminCreated,
   type ReissuedInvitation,
+  type CreateCompanyInput,
+  type CreateEnvironmentInput,
+  type SetTenantContractInput,
   type SetTenantModulesInput,
   type SetTenantPlanInput,
   type TenantDetail,
@@ -55,6 +61,8 @@ import {
   type UserSummary
 } from "@growpath/contracts";
 import {
+  ContractPeriodInvalidError,
+  EnvironmentNotInTenantError,
   EmailAlreadyInUseError,
   PlatformTenantMissingError,
   SeatLimitReachedError,
@@ -248,6 +256,123 @@ export class PlatformController {
       dto.seatLimit,
       actorFrom(request, ip)
     );
+    if (!tenant) {
+      throw new NotFoundException({ message: "Tenant not found." });
+    }
+    return tenant;
+  }
+
+  /**
+   * The period a tenant's contract runs for.
+   *
+   * Under `platform.plan.write`, alongside the plan and the seat override: how
+   * long a customer has bought for is a commercial fact of the same kind as
+   * what they bought, not an operational one like suspending them.
+   *
+   * PUT rather than PATCH, unlike the seats route beside it, because the body
+   * is the whole period. Both dates travel together and either may be null, so
+   * that clearing one is expressible — a PATCH-shaped body where an omitted
+   * field meant "leave it" could not distinguish that from "clear it", and an
+   * operator correcting a start date would silently keep a stale end date.
+   *
+   * Nothing here enforces the dates. An expired contract is shown on the
+   * profile and acted on by a person; a route that quietly locked a customer
+   * out of their own data on a date is a decision this endpoint does not make.
+   */
+  @Put(API_ROUTES.platformTenantContract)
+  @RequiresPlatformPermission("platform.plan.write")
+  async setTenantContract(
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(setTenantContractSchema)) dto: SetTenantContractInput,
+    @Req() request: Request,
+    @Ip() ip: string
+  ): Promise<TenantDetail> {
+    let tenant: TenantDetail | null;
+    try {
+      tenant = await this.platform.setTenantContract(id, dto, actorFrom(request, ip));
+    } catch (err) {
+      if (err instanceof ContractPeriodInvalidError) {
+        // 400, not 500: the caller fixes this by sending different dates. The
+        // schema already refuses the same thing, so reaching here means a
+        // caller that bypassed it — the database constraint is the backstop.
+        throw new BadRequestException({
+          message: err.message,
+          startDate: err.startDate,
+          endDate: err.endDate
+        });
+      }
+      throw err;
+    }
+
+    if (!tenant) {
+      throw new NotFoundException({ message: "Tenant not found." });
+    }
+    return tenant;
+  }
+
+  /**
+   * Records a Dynamics environment for a tenant.
+   *
+   * Closes the gap that made a freshly provisioned tenant unusable:
+   * provisioning creates none, the mobile app's blocker check therefore reports
+   * `no_environment`, and nothing could create the row that clears it.
+   *
+   * Under `platform.tenant.write` rather than a commercial key. Recording which
+   * Dynamics instance a customer runs is operational, like renaming or
+   * suspending them — not a decision about what they have bought.
+   *
+   * Carries no credential and cannot: the client id and secret go to
+   * `PUT /connections/:id`, which checks them against Entra and saves only if
+   * they pass.
+   */
+  @Post(API_ROUTES.platformTenantEnvironments)
+  @HttpCode(201)
+  @RequiresPlatformPermission("platform.tenant.write")
+  async createEnvironment(
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(createEnvironmentSchema)) dto: CreateEnvironmentInput,
+    @Req() request: Request,
+    @Ip() ip: string
+  ): Promise<TenantDetail> {
+    const tenant = await this.platform.createEnvironment(id, dto, actorFrom(request, ip));
+    if (!tenant) {
+      throw new NotFoundException({ message: "Tenant not found." });
+    }
+    return tenant;
+  }
+
+  /**
+   * Records a legal entity inside one of the tenant's environments.
+   *
+   * Needed alongside the route above rather than after it: an environment with
+   * a working credential and no company still leaves the app blocked, at
+   * `no_company`, because nothing can scope an OData query. Shipping only the
+   * environment would move the dead end rather than remove it.
+   */
+  @Post(API_ROUTES.platformTenantCompanies)
+  @HttpCode(201)
+  @RequiresPlatformPermission("platform.tenant.write")
+  async createCompany(
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(createCompanySchema)) dto: CreateCompanyInput,
+    @Req() request: Request,
+    @Ip() ip: string
+  ): Promise<TenantDetail> {
+    let tenant: TenantDetail | null;
+    try {
+      tenant = await this.platform.createCompany(id, dto, actorFrom(request, ip));
+    } catch (err) {
+      if (err instanceof EnvironmentNotInTenantError) {
+        // 400, not 404: the tenant exists and the caller named an environment
+        // that is not theirs. A 404 here would be about the wrong resource.
+        throw new BadRequestException({
+          message: err.message,
+          environmentId: err.environmentId
+        });
+      }
+      throw err;
+    }
+
     if (!tenant) {
       throw new NotFoundException({ message: "Tenant not found." });
     }

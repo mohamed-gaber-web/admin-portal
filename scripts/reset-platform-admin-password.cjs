@@ -16,6 +16,10 @@
  *   node scripts/reset-platform-admin-password.cjs --email ops@example.com --apply
  *   railway run node scripts/reset-platform-admin-password.cjs --email ops@example.com --apply
  *
+ * Add `--dns 8.8.8.8` if the connection fails with EAI_AGAIN on a *.rlwy.net
+ * host: some resolvers cannot answer for that zone while answering everything
+ * else, and the symptom looks like the database being unreachable.
+ *
  * Reports and changes nothing without `--apply`. With it, and with no password
  * supplied, one is generated and printed once — this is the only place it is
  * ever shown, since only the Argon2id digest is stored.
@@ -142,7 +146,12 @@ function parseArguments(argv) {
     email,
     password,
     apply: values.get('apply') === true,
-    clearMfa: values.get('clear-mfa') === true
+    clearMfa: values.get('clear-mfa') === true,
+    // Some resolvers cannot answer for the rlwy.net zone and fail the connection
+    // with EAI_AGAIN while every other lookup works. Rather than substitute a
+    // raw IP and lose both the hostname and TLS verification, point this
+    // process at a resolver that does answer.
+    dns: typeof values.get('dns') === 'string' ? values.get('dns').split(',') : null
   };
 }
 
@@ -158,6 +167,10 @@ function describeTarget(url) {
 
 async function main() {
   const options = parseArguments(process.argv.slice(2));
+
+  if (options.dns) {
+    require('dns').setServers(options.dns);
+  }
 
   const envPath = path.join(repoRoot, '.env');
   if (!process.env.DATABASE_URL && fs.existsSync(envPath)) {

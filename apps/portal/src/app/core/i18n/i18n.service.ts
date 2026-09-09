@@ -23,7 +23,18 @@ export type MessageParams = Record<string, string | number>;
  * Derived from the catalogue, so `plural()` cannot be called with a base that
  * has no forms defined.
  */
-export type PluralBase = MessageKey extends `${infer Base}.other` ? Base : never;
+type PluralBaseOf<Key> = Key extends `${infer Base}.other` ? Base : never;
+
+/**
+ * Written through a helper because a conditional type only distributes over a
+ * *naked type parameter*. Applied directly to `MessageKey` — a concrete union,
+ * not a parameter — the check asks whether the entire union extends
+ * `${string}.other`, which it does not, and the whole thing collapses to
+ * `never`. That made `plural()` uncallable rather than merely unchecked, and it
+ * went unnoticed because no plural family existed until the contract card
+ * needed day counts.
+ */
+export type PluralBase = PluralBaseOf<MessageKey>;
 
 export type TranslateFn = (key: MessageKey, params?: MessageParams) => string;
 
@@ -102,6 +113,36 @@ export class I18nService {
   formatDate(value: string | Date, options?: Intl.DateTimeFormatOptions): string {
     const date = value instanceof Date ? value : new Date(value);
     if (Number.isNaN(date.getTime())) return this.t("common.unknown");
+    return new Intl.DateTimeFormat(
+      this.meta().intl,
+      options ?? { day: "numeric", month: "short", year: "numeric" }
+    ).format(date);
+  }
+
+  /**
+   * Formats a calendar date — `YYYY-MM-DD` — without shifting it a day.
+   *
+   * Distinct from `formatDate`, and the distinction is not pedantry.
+   * `new Date("2026-01-01")` is parsed as **UTC** midnight by specification,
+   * and `Intl.DateTimeFormat` then renders it in the viewer's own zone: west of
+   * Greenwich that is 31 December 2025, so a contract ending on the 1st reads
+   * as ending on the 31st for every operator in the Americas.
+   *
+   * Contract dates are calendar days, not instants — that is why the columns
+   * are `date` rather than `timestamptz` — and a day must render as itself
+   * everywhere. Splitting the string and building a *local* midnight is what
+   * keeps that true.
+   *
+   * Use `formatDate` for timestamps (`created_at`, audit entries); use this for
+   * anything that came out of a `date` column.
+   */
+  formatCalendarDate(value: string, options?: Intl.DateTimeFormatOptions): string {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (!match) return this.t("common.unknown");
+
+    const [, year, month, day] = match;
+    const date = new Date(Number(year), Number(month) - 1, Number(day));
+
     return new Intl.DateTimeFormat(
       this.meta().intl,
       options ?? { day: "numeric", month: "short", year: "numeric" }

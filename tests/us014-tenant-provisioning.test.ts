@@ -223,4 +223,108 @@ describe.skipIf(!hasDb)("US-014 - tenant provisioning API", () => {
       expect(users.rowCount).toBe(1);
     });
   });
+
+  /**
+   * Choosing modules on the create form (the mobile-module-catalogue change).
+   *
+   * The grant happens inside the provisioning transaction rather than as a
+   * follow-up `PUT /platform/tenants/:id/modules`, and the ordering matters:
+   * provisioning's last act is issuing the first admin's invitation, so a
+   * tenant created with nothing granted is one whose administrator can accept
+   * that invitation and sign in to an empty mobile menu before an operator has
+   * reached the second screen.
+   */
+  describe("module entitlements chosen at creation", () => {
+    it("grants exactly the modules asked for, and no others", async () => {
+      const response = await post({
+        name: "Massive Dynamic",
+        slug: "massive-dynamic",
+        modules: ["inventory", "warehouse", "van-sales"]
+      });
+      expect(response.status).toBe(201);
+
+      const body = provisionedTenantSchema.parse(await response.json());
+      // Returned, so a portal built against a catalogue the database has not
+      // caught up with can see that a key it sent was dropped.
+      expect([...body.modules].sort()).toEqual(["inventory", "van-sales", "warehouse"]);
+
+      await withClient(db!.url, async (client) => {
+        const held = await client.query<{ key: string }>(
+          `SELECT m.key
+             FROM tenant_module tm
+             JOIN module m ON m.id = tm.module_id
+            WHERE tm.tenant_id = $1
+            ORDER BY m.key`,
+          [body.tenant.id]
+        );
+        expect(held.rows.map((row) => row.key)).toEqual([
+          "inventory",
+          "van-sales",
+          "warehouse"
+        ]);
+      });
+    });
+
+    it("grants nothing when the field is omitted, and still provisions", async () => {
+      // The shape every caller written before this field used, including the
+      // two acceptance tests above. It must keep working, and must not quietly
+      // grant a default set — a careless create should not be the generous one.
+      const response = await post({ name: "Hooli", slug: "hooli" });
+      expect(response.status).toBe(201);
+
+      const body = provisionedTenantSchema.parse(await response.json());
+      expect(body.modules).toEqual([]);
+
+      await withClient(db!.url, async (client) => {
+        const held = await client.query("SELECT id FROM tenant_module WHERE tenant_id = $1", [
+          body.tenant.id
+        ]);
+        expect(held.rowCount).toBe(0);
+      });
+    });
+
+    it("refuses a key that is not in the catalogue", async () => {
+      // Rejected by the schema at the edge rather than silently dropped, so an
+      // operator whose portal is ahead of the database is told rather than
+      // given a tenant holding less than they ticked.
+      const response = await post({
+        name: "Soylent",
+        slug: "soylent",
+        modules: ["inventory", "field-service"]
+      });
+      expect(response.status).toBe(400);
+
+      await withClient(db!.url, async (client) => {
+        const tenants = await client.query("SELECT id FROM tenant WHERE slug = $1", ["soylent"]);
+        expect(tenants.rowCount).toBe(0);
+      });
+    });
+
+    it("records the grant on the provisioning audit entry, not as a separate edit", async () => {
+      const response = await post({
+        name: "Vehement",
+        slug: "vehement",
+        modules: ["production"]
+      });
+      const body = provisionedTenantSchema.parse(await response.json());
+
+      await withClient(db!.url, async (client) => {
+        // `context` is written to the `data` column — see `recordAuditEntry`.
+        const entries = await client.query<{ action: string; data: unknown }>(
+          "SELECT action, data FROM audit_log WHERE tenant_id = $1 ORDER BY created_at",
+          [body.tenant.id]
+        );
+        const actions = entries.rows.map((row) => row.action);
+
+        // Nothing *changed* — this is the state the tenant came into existence
+        // with, and a `tenant.modules_changed` line seconds after
+        // `tenant.provisioned` would read as an edit somebody made.
+        expect(actions).not.toContain("tenant.modules_changed");
+
+        const provisioned = entries.rows.find((row) => row.action === "tenant.provisioned");
+        expect(provisioned).toBeDefined();
+        expect((provisioned!.data as { modules?: string[] }).modules).toEqual(["production"]);
+      });
+    });
+  });
 });

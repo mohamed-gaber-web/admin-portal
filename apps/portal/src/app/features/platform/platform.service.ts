@@ -264,6 +264,53 @@ export class PlatformService {
     );
   }
 
+  /**
+   * Records the period a tenant's contract runs for.
+   *
+   * Both dates every time, either of them null. The endpoint is a PUT over the
+   * whole period rather than a patch, so that clearing one date is something
+   * this call can express — see the route's note.
+   */
+  setTenantContract(
+    id: string,
+    contract: { startDate: string | null; endDate: string | null }
+  ): Observable<TenantDetail> {
+    return this.api.putValidated(
+      pathFor(API_ROUTES.platformTenantContract, { id }),
+      contract,
+      tenantDetailSchema
+    );
+  }
+
+  /**
+   * Records a Dynamics environment for a tenant.
+   *
+   * Returns the whole tenant, so the detail page re-renders from the server's
+   * answer rather than splicing the new row into its own copy.
+   */
+  createEnvironment(
+    id: string,
+    input: { name: string; url: string; kind?: string }
+  ): Observable<TenantDetail> {
+    return this.api.postValidated(
+      pathFor(API_ROUTES.platformTenantEnvironments, { id }),
+      input,
+      tenantDetailSchema
+    );
+  }
+
+  /** Records a legal entity inside one of the tenant's environments. */
+  createCompany(
+    id: string,
+    input: { environmentId: string; name: string; dataAreaId: string }
+  ): Observable<TenantDetail> {
+    return this.api.postValidated(
+      pathFor(API_ROUTES.platformTenantCompanies, { id }),
+      input,
+      tenantDetailSchema
+    );
+  }
+
   /** The module catalogue, marked with what this tenant holds. */
   listTenantModules(id: string): Observable<TenantModule[]> {
     return this.api.getValidated(

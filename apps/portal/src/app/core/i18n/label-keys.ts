@@ -42,17 +42,35 @@ export const TENANT_PLAN_LABEL_KEYS: Record<TenantPlan, MessageKey> = {
  * this build has never heard of.
  */
 export const MODULE_LABEL_KEYS: Record<ModuleKey, MessageKey> = {
-  "van-sales": "module.van-sales",
+  inventory: "module.inventory",
+  "purchase-order": "module.purchase-order",
+  "sales-order": "module.sales-order",
+  "return-order": "module.return-order",
+  project: "module.project",
+  production: "module.production",
   warehouse: "module.warehouse",
-  "field-service": "module.field-service",
-  analytics: "module.analytics"
+  inquiry: "module.inquiry",
+  "van-sales": "module.van-sales",
+  "route-tracking": "module.route-tracking",
+  "trade-payments": "module.trade-payments",
+  performance: "module.performance",
+  distribution: "module.distribution"
 };
 
 export const MODULE_DESCRIPTION_KEYS: Record<ModuleKey, MessageKey> = {
-  "van-sales": "module.van-sales.description",
+  inventory: "module.inventory.description",
+  "purchase-order": "module.purchase-order.description",
+  "sales-order": "module.sales-order.description",
+  "return-order": "module.return-order.description",
+  project: "module.project.description",
+  production: "module.production.description",
   warehouse: "module.warehouse.description",
-  "field-service": "module.field-service.description",
-  analytics: "module.analytics.description"
+  inquiry: "module.inquiry.description",
+  "van-sales": "module.van-sales.description",
+  "route-tracking": "module.route-tracking.description",
+  "trade-payments": "module.trade-payments.description",
+  performance: "module.performance.description",
+  distribution: "module.distribution.description"
 };
 
 export const USER_STATUS_LABEL_KEYS: Record<UserStatus, MessageKey> = {

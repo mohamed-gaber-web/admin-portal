@@ -66,7 +66,7 @@ describe.skipIf(!hasDb)("US-013 - cross-tenant isolation of module entitlements"
 
     // Deliberately disjoint. Overlapping sets would let a query that ignored
     // the tenant boundary still look right for the shared entries.
-    await grant(tenantA.tenantId, ["van-sales", "analytics"]);
+    await grant(tenantA.tenantId, ["van-sales", "performance"]);
     await grant(tenantB.tenantId, ["warehouse"]);
   });
 
@@ -104,7 +104,7 @@ describe.skipIf(!hasDb)("US-013 - cross-tenant isolation of module entitlements"
 
   describe(coversRoute("GET /modules"), () => {
     it("marks only the caller's own entitlements as held", async () => {
-      expect(await heldBy(tenantA.accessToken)).toEqual(["analytics", "van-sales"]);
+      expect(await heldBy(tenantA.accessToken)).toEqual(["performance", "van-sales"]);
 
       // And tenant B sees its own — so this is isolation rather than an
       // endpoint that reports nothing as held to everybody.

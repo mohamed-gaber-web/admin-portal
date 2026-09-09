@@ -21,6 +21,9 @@ import {
   setPlanUserLimit,
   setTenantName,
   setTenantSeatLimit,
+  setTenantContract,
+  createTenantEnvironment,
+  createTenantCompany,
   setTenantStatus,
   setUserStatus,
   withoutTenantScope,
@@ -87,6 +90,8 @@ const toTenantSummary = (record: TenantSummaryRecord): TenantSummary => ({
   userCount: record.userCount,
   userLimit: record.userLimit,
   seatLimitOverride: record.seatLimitOverride,
+  contractStartDate: record.contractStartDate,
+  contractEndDate: record.contractEndDate,
   adminEmail: record.adminEmail,
   createdAt: record.createdAt.toISOString()
 });
@@ -518,6 +523,103 @@ export class PlatformService {
           actor
         });
         if (!result) return null;
+
+        const tenant = await findTenantDetail(client, id);
+        return tenant ? toTenantDetail(tenant) : null;
+      }
+    );
+  }
+
+  /**
+   * Records the period a tenant's contract runs for.
+   *
+   * Returns the whole tenant rather than the dates alone, matching
+   * `setTenantSeats` and `setTenantPlan` above: the screen renders what the
+   * server holds instead of patching its own copy, which is how a screen starts
+   * quietly disagreeing with the database.
+   *
+   * Lets `ContractPeriodInvalidError` out. The controller turns it into a 400 —
+   * an end date before its start is the caller's mistake and is fixable by
+   * sending different dates, which is not a 500.
+   */
+  async setTenantContract(
+    id: string,
+    input: { startDate: string | null; endDate: string | null },
+    actor: AuditActor
+  ): Promise<TenantDetail | null> {
+    return withoutTenantScope(
+      this.pool,
+      { reason: "Platform administration: recording any tenant's contract period." },
+      async (client) => {
+        const result = await setTenantContract(client, {
+          tenantId: id,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          actor
+        });
+        if (!result) return null;
+
+        const tenant = await findTenantDetail(client, id);
+        return tenant ? toTenantDetail(tenant) : null;
+      }
+    );
+  }
+
+  /**
+   * Records a Dynamics environment for a tenant.
+   *
+   * Returns the whole tenant, like every other write here, so the screen
+   * re-renders from the server rather than patching its own copy — which is how
+   * a screen starts quietly disagreeing with the database.
+   */
+  async createEnvironment(
+    id: string,
+    input: { name: string; url: string; kind?: string },
+    actor: AuditActor
+  ): Promise<TenantDetail | null> {
+    return withoutTenantScope(
+      this.pool,
+      { reason: "Platform administration: recording any tenant's Dynamics environment." },
+      async (client) => {
+        const created = await createTenantEnvironment(client, {
+          tenantId: id,
+          name: input.name,
+          url: input.url,
+          kind: input.kind,
+          actor
+        });
+        if (!created) return null;
+
+        const tenant = await findTenantDetail(client, id);
+        return tenant ? toTenantDetail(tenant) : null;
+      }
+    );
+  }
+
+  /**
+   * Records a legal entity inside one of the tenant's environments.
+   *
+   * Lets `EnvironmentNotInTenantError` out so the controller can answer 400 for
+   * an environment that is not this tenant's — distinct from a 404 for a tenant
+   * that does not exist.
+   */
+  async createCompany(
+    id: string,
+    input: { environmentId: string; name: string; dataAreaId: string },
+    actor: AuditActor
+  ): Promise<TenantDetail | null> {
+    return withoutTenantScope(
+      this.pool,
+      { reason: "Platform administration: recording any tenant's legal entity." },
+      async (client) => {
+        const created = await createTenantCompany(client, {
+          tenantId: id,
+          environmentId: input.environmentId,
+          name: input.name,
+          dataAreaId: input.dataAreaId,
+          actor
+        });
+        if (!created) return null;
 
         const tenant = await findTenantDetail(client, id);
         return tenant ? toTenantDetail(tenant) : null;

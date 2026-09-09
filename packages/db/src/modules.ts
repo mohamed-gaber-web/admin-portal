@@ -18,8 +18,27 @@ import type { Queryable } from "./tenancy";
  * `tenant_id` filter of its own.
  */
 
-/** Mirrors the contract's `MODULE_KEYS`, and the migration's catalogue. */
-export type ModuleKey = "van-sales" | "warehouse" | "field-service" | "analytics";
+/**
+ * Mirrors the contract's `MODULE_KEYS`, and the migration's catalogue.
+ *
+ * The mobile app's navigation groups, one for one — see
+ * `1730000016000_mobile-module-catalogue.js` for why the four invented
+ * placeholders that used to be here were replaced.
+ */
+export type ModuleKey =
+  | "inventory"
+  | "purchase-order"
+  | "sales-order"
+  | "return-order"
+  | "project"
+  | "production"
+  | "warehouse"
+  | "inquiry"
+  | "van-sales"
+  | "route-tracking"
+  | "trade-payments"
+  | "performance"
+  | "distribution";
 
 export type TenantPlan = "trial" | "starter" | "growth" | "enterprise";
 
@@ -207,6 +226,56 @@ export async function setTenantModules(
   return after;
 }
 
+/**
+ * Grants a set of modules to a tenant that is being created, in the caller's
+ * transaction.
+ *
+ * Separate from `setTenantModules`, and the difference is the audit entry.
+ * `setTenantModules` writes `tenant.modules_changed` with a before and an
+ * after, which is right for an edit and wrong here: nothing changed, and a log
+ * line claiming a tenant's entitlements were altered seconds after it came into
+ * existence reads as an edit somebody made. Provisioning records the grant as
+ * context on `tenant.provisioned` instead — the same treatment the default
+ * roles and permissions already get.
+ *
+ * Takes no `before` read and does no revoking, because a tenant one statement
+ * old holds nothing there could be a before of.
+ *
+ * Returns the keys actually granted, which is the intersection of what was
+ * asked for and what the catalogue contains. Unknown keys are dropped rather
+ * than refused, matching `setTenantModules`: they can only come from a client
+ * built against a newer catalogue, and failing provisioning over one would mean
+ * a tenant cannot be created at all until every deployed portal agrees with the
+ * database.
+ */
+export async function grantTenantModules(
+  db: Queryable,
+  input: { tenantId: string; keys: readonly string[] }
+): Promise<string[]> {
+  const wanted = [...new Set(input.keys)];
+  if (wanted.length === 0) return [];
+
+  const res = await db.query<{ key: string }>(
+    `INSERT INTO tenant_module (tenant_id, module_id)
+     SELECT $1, m.id FROM module m WHERE m.key = ANY($2::text[])
+     -- A no-op update rather than DO NOTHING, so the RETURNING clause below
+     -- reports every requested key the catalogue knows rather than only the
+     -- ones this statement inserted. With DO NOTHING, topping up a tenant that
+     -- already held one of them would return it missing, and a caller cannot
+     -- tell "you already had it" from "that module does not exist" — which is
+     -- the one question this return value is here to answer.
+     --
+     -- enabled_at is deliberately not in the SET: re-granting something a
+     -- tenant already holds must not move the date it was first granted, which
+     -- is what the column is read for.
+     ON CONFLICT (tenant_id, module_id) DO UPDATE SET tenant_id = EXCLUDED.tenant_id
+     RETURNING (SELECT key FROM module WHERE id = module_id)`,
+    [input.tenantId, wanted]
+  );
+
+  return res.rows.map((row) => row.key).sort();
+}
+
 export interface SetTenantPlanInput {
   tenantId: string;
   plan: TenantPlan;
@@ -286,6 +355,115 @@ export async function setTenantPlan(
   }
 
   return { plan: input.plan, changed: true };
+}
+
+// ── The contract period ────────────────────────────────────────────────────
+
+export interface SetTenantContractInput {
+  tenantId: string;
+  /** `YYYY-MM-DD`, or null to clear. */
+  startDate: string | null;
+  endDate: string | null;
+  actor: AuditActor;
+}
+
+export interface TenantContract {
+  startDate: string | null;
+  endDate: string | null;
+}
+
+/**
+ * Records the period a tenant's contract runs for.
+ *
+ * Both dates are written together and either may be null, which is what makes
+ * this a replace rather than a patch: sending one and omitting the other would
+ * make "clear the end date" indistinguishable from "leave it alone", and an
+ * operator fixing a start date would silently carry over whatever end date
+ * their stale form held.
+ *
+ * Overwrites rather than versioning. There is no history of previous terms here
+ * — that belongs to the subscription model this is deliberately not (US-070/071)
+ * — so the audit entry is where a superseded term survives, and it carries both
+ * dates on both sides so a renewal can be read back in full.
+ *
+ * Enforces nothing. A tenant whose end date has passed keeps working; expiry is
+ * displayed and what to do about it stays a decision on the lifecycle card.
+ * Locking a customer out of their own data on a date is a harsher act than
+ * declining to renew them, and this function does not quietly perform it.
+ *
+ * Returns null for an unknown tenant, and `changed: false` when the stored
+ * dates already match — so a retried request writes no second audit entry.
+ */
+export async function setTenantContract(
+  db: Queryable,
+  input: SetTenantContractInput
+): Promise<{ contract: TenantContract; changed: boolean } | null> {
+  if (!isUuid(input.tenantId)) return null;
+
+  /*
+   * Guarded here as well as by `tenant_contract_period_ordered`. The constraint
+   * stays the authority — it holds against anything that reaches the table —
+   * and this exists so a caller gets a refusal naming the problem rather than a
+   * driver error carrying a constraint name.
+   *
+   * String comparison is date comparison for ISO-8601, which is why the column
+   * is read and written in that form throughout.
+   */
+  if (
+    input.startDate !== null &&
+    input.endDate !== null &&
+    input.endDate < input.startDate
+  ) {
+    throw new ContractPeriodInvalidError(input.startDate, input.endDate);
+  }
+
+  const existing = await db.query<{ start_date: string | null; end_date: string | null }>(
+    `SELECT to_char(contract_start_date, 'YYYY-MM-DD') AS start_date,
+            to_char(contract_end_date, 'YYYY-MM-DD') AS end_date
+       FROM tenant WHERE id = $1`,
+    [input.tenantId]
+  );
+  const current = existing.rows[0];
+  if (!current) return null;
+
+  const before: TenantContract = { startDate: current.start_date, endDate: current.end_date };
+  const after: TenantContract = { startDate: input.startDate, endDate: input.endDate };
+
+  if (before.startDate === after.startDate && before.endDate === after.endDate) {
+    return { contract: before, changed: false };
+  }
+
+  await db.query(
+    `UPDATE tenant
+        SET contract_start_date = $2::date,
+            contract_end_date = $3::date,
+            updated_at = now()
+      WHERE id = $1`,
+    [input.tenantId, input.startDate, input.endDate]
+  );
+
+  await recordAuditEntry(db, {
+    tenantId: input.tenantId,
+    action: "tenant.contract_changed",
+    entityType: "tenant",
+    entityId: input.tenantId,
+    actor: input.actor,
+    before: { ...before },
+    after: { ...after }
+  });
+
+  return { contract: after, changed: true };
+}
+
+/** Raised when a contract would end before it starts. */
+export class ContractPeriodInvalidError extends Error {
+  constructor(
+    readonly startDate: string,
+    readonly endDate: string
+  ) {
+    super(`A contract cannot end on ${endDate}, before it starts on ${startDate}.`);
+    this.name = "ContractPeriodInvalidError";
+  }
 }
 
 // ── Packages and their seat allowances ─────────────────────────────────────

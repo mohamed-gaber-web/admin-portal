@@ -17,5 +17,7 @@ export * from "./schemas/role";
 export * from "./schemas/activity";
 export * from "./schemas/connection";
 export * from "./schemas/mobile-config";
+export * from "./schemas/contract";
 export * from "./schemas/module";
+export * from "./schemas/provisioning-steps";
 export * from "./schemas/platform";

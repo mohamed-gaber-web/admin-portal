@@ -133,8 +133,16 @@ export const DEMO_TENANTS: DemoTenant[] = [
       },
       minimumAppVersion: "2.0.0"
     },
-    /** On an enterprise plan, so everything except field service. */
-    modules: ["van-sales", "warehouse", "analytics"],
+    /** On an enterprise plan, so most of the catalogue — but not all of it. */
+    modules: [
+      "inventory",
+      "purchase-order",
+      "sales-order",
+      "warehouse",
+      "inquiry",
+      "van-sales",
+      "performance"
+    ],
     plan: "enterprise",
     companies: [
       { name: "Acme Manufacturing", dataAreaId: "acmf" },
@@ -162,7 +170,7 @@ export const DEMO_TENANTS: DemoTenant[] = [
       minimumAppVersion: null
     },
     /** A smaller set, and intentionally not a subset of Acme's. */
-    modules: ["warehouse", "field-service"],
+    modules: ["warehouse", "production", "project"],
     /** A smaller package too, so the seat column shows two different numbers. */
     plan: "starter",
     companies: [

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MODULE_KEYS, moduleKeySchema, isModuleKey, type ModuleKey } from "./module-keys";
 import { tenantPlanSchema } from "./tenant";
 
 /**
@@ -20,21 +21,15 @@ import { tenantPlanSchema } from "./tenant";
  */
 
 /**
- * The catalogue, mirrored from the modules-and-plan-administration migration.
+ * The catalogue, re-exported from `module-keys.ts`.
  *
- * A contract test asserts these match the `module` table. Kept as a literal here
- * rather than fetched, so the portal can render a stable list and the compiler
- * can check a key against it.
+ * The keys themselves live in a file that imports nothing, because `tenant.ts`
+ * needs them too and this file already imports `tenantPlanSchema` from there —
+ * see the note in `module-keys.ts` for why a cycle between two Zod modules is
+ * not survivable. Re-exported here so `module.ts` remains the one import a
+ * consumer of entitlements needs.
  */
-export const MODULE_KEYS = [
-  "van-sales",
-  "warehouse",
-  "field-service",
-  "analytics"
-] as const;
-
-export const moduleKeySchema = z.enum(MODULE_KEYS);
-export type ModuleKey = z.infer<typeof moduleKeySchema>;
+export { MODULE_KEYS, moduleKeySchema, isModuleKey, type ModuleKey };
 
 /**
  * One module, as the entitlement screen renders it.

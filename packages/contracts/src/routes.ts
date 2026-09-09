@@ -260,6 +260,44 @@ export const API_ROUTES = {
   platformTenantSeats: "/platform/tenants/:id/seats",
   /** Which modules a tenant is entitled to. The whole set, replaced at once. */
   platformTenantModules: "/platform/tenants/:id/modules",
+  /**
+   * The period a tenant's contract runs for.
+   *
+   * Separate from `platformTenantPlan` for the reason every route here is
+   * separate: the package is *what* a customer bought and the term is *how
+   * long for*, and they change at different times — a mid-term upgrade must not
+   * require restating the dates, and recording a renewal must not require
+   * restating the package. Folding them into one body would make a retry that
+   * carried a stale half undo the other.
+   *
+   * Under `platform.plan.write`, alongside the plan and the seat override: all
+   * three are commercial decisions about what a customer may have, as distinct
+   * from the operational ones behind `platform.tenant.write`.
+   *
+   * Both dates travel together and both are nullable, so clearing one is a
+   * thing the body can express. Nothing enforces the end date — an expired
+   * contract is displayed, not acted on.
+   */
+  platformTenantContract: "/platform/tenants/:id/contract",
+  /**
+   * A tenant's Dynamics environments, and its legal entities.
+   *
+   * Creation only. Reading them is already covered by `platformTenant`, whose
+   * detail response carries both, and by the tenant-scoped `/connections` and
+   * `/companies`.
+   *
+   * These close a gap that made a freshly provisioned tenant unusable:
+   * provisioning creates no environment, `findErpBlocker` therefore reports
+   * `no_environment`, and until now nothing in the API or the portal could
+   * create the row that clears it. The database functions existed and had no
+   * caller.
+   *
+   * Under `platform.tenant.write` rather than a commercial key: recording which
+   * Dynamics instance a customer runs is an operational act, the same kind as
+   * renaming or suspending them, not a decision about what they have bought.
+   */
+  platformTenantEnvironments: "/platform/tenants/:id/environments",
+  platformTenantCompanies: "/platform/tenants/:id/companies",
 
   platformUsers: "/platform/users",
   /**

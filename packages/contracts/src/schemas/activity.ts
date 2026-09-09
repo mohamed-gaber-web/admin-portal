@@ -80,6 +80,9 @@ const SEVERITY_BY_ACTION: Record<string, ActivitySeverity> = {
   // about what it may do.
   "tenant.renamed": "info",
   "tenant.seats_changed": "info",
+  "tenant.contract_changed": "info",
+  "environment.created": "success",
+  "company.created": "success",
   // A *package's* allowance moving, which reaches every tenant on it that has
   // no negotiated figure. `warning` rather than the `info` its per-tenant
   // counterpart gets, and the difference is the blast radius: one is a

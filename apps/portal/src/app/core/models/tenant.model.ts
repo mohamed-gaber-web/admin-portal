@@ -29,6 +29,17 @@ export interface TenantSummary {
    * "25, because that is what Growth includes".
    */
   seatLimitOverride: number | null;
+  /**
+   * The contract period, as `YYYY-MM-DD`, or null where not recorded.
+   *
+   * Calendar dates, deliberately kept as plain strings rather than parsed into
+   * `Date`. These came from `date` columns: they are days, not instants, and
+   * `new Date("2026-01-01")` is UTC midnight rendered in local time — which is
+   * the previous day for every viewer west of Greenwich. Format them with
+   * `I18nService.formatCalendarDate`, never `formatDate`.
+   */
+  contractStartDate: string | null;
+  contractEndDate: string | null;
   /** The tenant's admin address, for an operator who needs to contact them. */
   adminEmail: string;
   /** ISO-8601. Kept as a string because that is what JSON carries. */

@@ -554,6 +554,27 @@ export const DECLARED_ROUTES: DeclaredRoute[] = [
     audits: ["tenant.seats_changed"]
   },
   {
+    method: "PUT",
+    path: "/platform/tenants/:id/contract",
+    visibility: "platform",
+    note: "Records the period a tenant's contract runs for. Under platform.plan.write alongside the plan and the seat override, because how long a customer has bought for is a commercial fact of the same kind as what they bought. PUT rather than PATCH because the body is the whole period: both dates travel together and either may be null, so clearing one is expressible — an omitted field could not be told apart from a cleared one, and an operator correcting a start date would silently keep a stale end date. Nothing enforces the dates; an expired contract is displayed on the profile and acted on by a person, never by an automatic lockout.",
+    audits: ["tenant.contract_changed"]
+  },
+  {
+    method: "POST",
+    path: "/platform/tenants/:id/environments",
+    visibility: "platform",
+    note: "Records a Dynamics environment for a tenant. Closes the gap that made a freshly provisioned tenant unusable: provisioning creates none, findErpBlocker therefore reports no_environment, and nothing in the API or the portal could create the row that clears it — the database function had no caller. Under platform.tenant.write rather than a commercial key, because recording which instance a customer runs is operational like renaming or suspending them, not a decision about what they bought. Carries no credential: the client id and secret go to PUT /connections/:id, which verifies them against Entra before persisting.",
+    audits: ["environment.created"]
+  },
+  {
+    method: "POST",
+    path: "/platform/tenants/:id/companies",
+    visibility: "platform",
+    note: "Records a legal entity inside one of the tenant's environments. Ships alongside the environment route rather than after it: an environment with a working credential and no company still leaves the app blocked at no_company, because nothing can scope an OData query — so shipping only the environment would move the dead end rather than remove it. The composite foreign key on (environment_id, tenant_id) is what refuses another tenant's environment; the check in application code exists only to produce a better message.",
+    audits: ["company.created"]
+  },
+  {
     method: "GET",
     path: "/platform/plans",
     visibility: "platform",

@@ -27,6 +27,7 @@ import {
   type BadgeTone
 } from "@shared/ui";
 import { ActivityListComponent } from "@shared/components/activity-list.component";
+import { TenantContractComponent } from "@features/platform/components/tenant-contract.component";
 import { TenantEnvironmentsComponent } from "./components/tenant-environments.component";
 import { TenantLifecycleComponent } from "./components/tenant-lifecycle.component";
 import { TenantsService } from "./tenants.service";
@@ -59,6 +60,7 @@ import { TenantsService } from "./tenants.service";
     ErrorStateComponent,
     IconComponent,
     SkeletonComponent,
+    TenantContractComponent,
     TenantEnvironmentsComponent,
     TenantLifecycleComponent
   ],
@@ -133,7 +135,26 @@ import { TenantsService } from "./tenants.service";
             </div>
 
             <!-- Overview -->
-            <ui-card>
+            <!--
+                  Their own contract, read-only.
+
+                  Same component the operator screen uses, with the audience
+                  set to "tenant": the dates and the bar are the same facts, and the
+                  advice is not — an operator is told they can suspend the
+                  tenant, which is a control a customer does not have and should
+                  not be pointed at.
+                -->
+                <ui-card>
+                  <ui-card-header
+                    [title]="t('contract.ownTitle')"
+                    [description]="t('contract.ownSubtitle')"
+                  />
+                  <div class="mt-6">
+                    <app-tenant-contract [tenant]="tenant" audience="tenant" />
+                  </div>
+                </ui-card>
+
+                <ui-card>
               <ui-card-header [title]="t('tenantDetail.overview')" />
               <dl class="mt-6 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
                 <div>

@@ -35,6 +35,8 @@ import {
 } from "@shared/ui";
 import { ActivityListComponent } from "@shared/components/activity-list.component";
 import { TenantEnvironmentsComponent } from "../tenants/components/tenant-environments.component";
+import { TenantContractComponent } from "./components/tenant-contract.component";
+import { TenantProvisioningComponent } from "./components/tenant-provisioning.component";
 import { TenantModulesComponent } from "./components/tenant-modules.component";
 import { TenantSubscriptionComponent } from "./components/tenant-subscription.component";
 import { PlatformService } from "./platform.service";
@@ -75,6 +77,8 @@ import { PlatformService } from "./platform.service";
     IconComponent,
     SkeletonComponent,
     TenantEnvironmentsComponent,
+    TenantContractComponent,
+    TenantProvisioningComponent,
     TenantModulesComponent,
     TenantSubscriptionComponent,
     FieldComponent,
@@ -322,7 +326,7 @@ import { PlatformService } from "./platform.service";
                     [description]="t('modules.subtitle')"
                   />
                   <div class="mt-6">
-                    <app-tenant-modules [tenantId]="tenant.id" />
+                    <app-tenant-modules [tenantId]="tenant.id" [canEdit]="canEditModules()" />
                   </div>
                 </ui-card>
 
@@ -333,11 +337,47 @@ import { PlatformService } from "./platform.service";
                   />
                   <div class="mt-6">
                     <app-tenant-environments [environments]="tenant.environments" />
+
+                    <!--
+                      Creating them, which had no home anywhere until now: a
+                      provisioned tenant has no environment, so its people are
+                      sent to the mobile setup screen, and nothing in the portal
+                      could create the row that clears it.
+                    -->
+                    @if (canEdit()) {
+                      <div class="mt-4 border-t border-border pt-4">
+                        <app-tenant-provisioning
+                          [tenant]="tenant"
+                          (changed)="onTenantChanged($event)"
+                        />
+                      </div>
+                    }
                   </div>
                 </ui-card>
               </div>
 
               <div class="space-y-6">
+                <!--
+                  The contract, above the package.
+
+                  Reading order matches the question an operator arrives with:
+                  "is this customer current?" comes before "what are they on?",
+                  and the term is the thing with a deadline attached.
+                -->
+                <ui-card>
+                  <ui-card-header
+                    [title]="t('contract.title')"
+                    [description]="t('contract.subtitle')"
+                  />
+                  <div class="mt-6">
+                    <app-tenant-contract
+                      [tenant]="tenant"
+                      [canEdit]="canEditContract()"
+                      (changed)="onTenantChanged($event)"
+                    />
+                  </div>
+                </ui-card>
+
                 <ui-card>
                   <ui-card-header
                     [title]="t('subscription.title')"
@@ -481,6 +521,21 @@ export class PlatformTenantDetailPage {
    * the endpoint checks the same claim.
    */
   protected readonly canEdit = () => this.session.hasPermission("platform.tenant.write");
+
+  /*
+   * Three separate gates, not one.
+   *
+   * `platform.tenant.write` is the operational key — rename, suspend, archive.
+   * Entitlements and the contract are commercial decisions behind their own
+   * keys, and an installation that wants a support operator who can suspend a
+   * customer but not re-sell to them is the reason those keys are separate.
+   *
+   * Gating all three on `canEdit()` would put an *Edit* button in front of
+   * somebody the API then answers 403 — an affordance that lies, which is worse
+   * than no affordance.
+   */
+  protected readonly canEditModules = () => this.session.hasPermission("platform.module.write");
+  protected readonly canEditContract = () => this.session.hasPermission("platform.plan.write");
 
   // ── The pending remedy: a fresh admin invitation ──────────────────
 

@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from "pg";
 import { recordAuditEntry, type AuditActor } from "./audit";
 import { issueInvitation } from "./invitations";
+import { grantTenantModules } from "./modules";
 import { isPlatformPermissionKey } from "./platform";
 
 /** Roles every new tenant starts with. Matches the demo seed's conventions. */
@@ -69,12 +70,30 @@ export interface ProvisionTenantInput {
    * in play rather than a copy in application code that can drift from it.
    */
   plan?: string;
+  /**
+   * Modules to grant the tenant as it is created.
+   *
+   * Omitted or empty grants nothing. Granted inside the provisioning
+   * transaction rather than by a follow-up call, because provisioning's last
+   * act is issuing the first admin's invitation: a tenant created with no
+   * modules is one whose administrator can accept that invitation and sign in
+   * to an empty sidebar before an operator reaches the second screen.
+   *
+   * Unknown keys are dropped rather than refused — see `grantTenantModules`.
+   */
+  modules?: readonly string[];
 }
 
 export interface ProvisionTenantResult {
   tenant: { id: string; name: string; slug: string };
   adminUser: { id: string; email: string };
   roles: { id: string; name: string }[];
+  /**
+   * The modules actually granted — what was asked for, intersected with the
+   * catalogue. Returned so a caller can tell that a key it sent was dropped as
+   * unknown, which is otherwise silent.
+   */
+  modules: string[];
   /**
    * The first admin's invitation (US-020).
    *
@@ -189,6 +208,20 @@ export async function provisionTenantOnClient(
     [tenant.id, adminUser.id, adminRole.id]
   );
 
+  /*
+   * The modules the operator chose on the create form.
+   *
+   * Before the audit entry below, so the entry can state what was granted. No
+   * entry of its own: nothing was *changed* here, and `tenant.modules_changed`
+   * written a moment after `tenant.provisioned` reads as an edit somebody made
+   * rather than as the state a tenant came into existence with. Same treatment
+   * as the default roles and permissions above.
+   */
+  const modules = await grantTenantModules(client, {
+    tenantId: tenant.id,
+    keys: input.modules ?? []
+  });
+
   // Two entries, because two different things happened: a tenant came into
   // existence, and someone was granted a permission.
   await recordAuditEntry(client, {
@@ -203,7 +236,7 @@ export async function provisionTenantOnClient(
     // own `role.permissions_changed` entry: nobody changed anything, these are
     // the defaults the tenant came into existence with, and a separate entry
     // would read as an edit somebody made afterwards.
-    context: { defaultRoles: [...DEFAULT_ROLES], defaultPermissions: grantedByRole }
+    context: { defaultRoles: [...DEFAULT_ROLES], defaultPermissions: grantedByRole, modules }
   });
 
   await recordAuditEntry(client, {
@@ -230,6 +263,7 @@ export async function provisionTenantOnClient(
     tenant,
     adminUser,
     roles,
+    modules,
     invitation: { id: invitation.id, expiresAt: invitation.expiresAt, token: invitation.token }
   };
 }
