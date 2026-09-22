@@ -123,12 +123,18 @@ export async function listUsers(
 ): Promise<PagedResult<UserSummary>> {
   const like = likeArgument(request.search);
   const { limit, offset } = limitOffset(request);
+  /*
+   * Three cases, not two. Omitted means the default view, which hides the
+   * removed — `"all"` is what asks for them back. Collapsing the two would make
+   * suspending somebody look like it did nothing.
+   */
   const status =
     !request.status || request.status === "all"
       ? null
       : request.status === "suspended"
         ? "disabled"
         : request.status;
+  const excludeRemoved = !request.status;
 
   const res = await db.query<UserRow>(
     `SELECT u.id, u.email, u.status, u.last_login_at, u.created_at,
@@ -141,6 +147,7 @@ export async function listUsers(
      LEFT JOIN user_role ur ON ur.user_id = u.id
      LEFT JOIN role r ON r.id = ur.role_id
      WHERE ($1::text IS NULL OR u.status = $1)
+       AND ($5::boolean IS NOT TRUE OR u.status <> 'disabled')
        AND ($2::text IS NULL
             OR u.email ILIKE $2 ESCAPE '\\'
             OR u.name ILIKE $2 ESCAPE '\\'
@@ -148,7 +155,7 @@ export async function listUsers(
      GROUP BY u.id, t.slug
      ${orderByClause(request, USER_SORT_COLUMNS, "name")}
      LIMIT $3 OFFSET $4`,
-    [status, like, limit, offset]
+    [status, like, limit, offset, excludeRemoved]
   );
 
   return toPage(res.rows, request, toSummary);

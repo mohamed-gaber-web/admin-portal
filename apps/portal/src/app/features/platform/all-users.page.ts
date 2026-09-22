@@ -121,9 +121,10 @@ import { PlatformService } from "./platform.service";
           uiSelect
           class="!w-auto !py-2"
           [attr.aria-label]="t('users.filterStatus')"
-          [value]="status()"
+          [value]="status() ?? ''"
           (change)="onStatus($event)"
         >
+          <option value="">{{ t("tenants.statusCurrent") }}</option>
           <option value="all">{{ t("common.allStatuses") }}</option>
           @for (option of statuses; track option) {
             <option [value]="option">{{ t(STATUS_LABELS[option]) }}</option>
@@ -334,7 +335,14 @@ export class AllUsersPage {
   } | null>(null);
 
   protected readonly search = signal("");
-  protected readonly status = signal<UserStatus | "all">("all");
+  /**
+   * Which account states to show.
+   *
+   * `undefined` is the default view and means "not removed": the API leaves
+   * suspended accounts out unless asked for them. Not the same as `"all"` —
+   * removing somebody has to take them out of the list they were removed from.
+   */
+  protected readonly status = signal<UserStatus | "all" | undefined>(undefined);
   protected readonly page = signal(1);
 
   private searchTimer?: ReturnType<typeof setTimeout>;
@@ -431,7 +439,10 @@ export class AllUsersPage {
   }
 
   protected onStatus(event: Event): void {
-    this.status.set((event.target as HTMLSelectElement).value as UserStatus | "all");
+    // A <select> cannot hold `undefined`, so the default option carries "" and
+    // it is mapped back here rather than sent as a status nobody defined.
+    const value = (event.target as HTMLSelectElement).value;
+    this.status.set(value === "" ? undefined : (value as UserStatus | "all"));
     this.page.set(1);
     this.load();
   }

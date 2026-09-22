@@ -10,6 +10,7 @@ import {
 import { ToastService } from "@core/notifications/toast.service";
 import {
   DEFAULT_PAGE_SIZE,
+  TENANT_STATUSES,
   asyncError,
   asyncLoading,
   type Async,
@@ -30,6 +31,7 @@ import {
   InputDirective,
   MenuItemComponent,
   PaginationComponent,
+  SelectDirective,
   SkeletonComponent,
   SortHeaderComponent,
   TableComponent,
@@ -72,6 +74,7 @@ import { PlatformService } from "./platform.service";
     MenuItemComponent,
     PageHeaderComponent,
     PaginationComponent,
+    SelectDirective,
     SkeletonComponent,
     SortHeaderComponent,
     TableComponent
@@ -107,6 +110,20 @@ import { PlatformService } from "./platform.service";
             (input)="onSearch($event)"
           />
         </div>
+
+        <select
+          uiSelect
+          class="!w-auto !py-2"
+          [attr.aria-label]="t('tenants.filterStatus')"
+          [value]="status() ?? ''"
+          (change)="onStatus($event)"
+        >
+          <option value="">{{ t("tenants.statusCurrent") }}</option>
+          <option value="all">{{ t("common.allStatuses") }}</option>
+          @for (option of statuses; track option) {
+            <option [value]="option">{{ t(STATUS_LABELS[option]) }}</option>
+          }
+        </select>
 
         <button uiButton variant="ghost" size="sm" type="button" (click)="load()">
           <ui-icon name="refresh" [size]="15" />
@@ -399,6 +416,16 @@ export class AllTenantsPage {
   } | null>(null);
 
   protected readonly search = signal("");
+  /**
+   * Which lifecycle states to show.
+   *
+   * `undefined` is the default view and means "not removed" — the API hides
+   * archived tenants unless asked. It is not the same as `"all"`, and the
+   * distinction is the whole point: removing a tenant has to remove it from
+   * the list it was removed from, or it reads as having done nothing.
+   */
+  protected readonly status = signal<TenantStatus | "all" | undefined>(undefined);
+  protected readonly statuses = TENANT_STATUSES;
   protected readonly page = signal(1);
   protected readonly sort = signal<"name" | "userCount">("name");
   protected readonly direction = signal<SortDirection>("asc");
@@ -450,6 +477,20 @@ export class AllTenantsPage {
     this.load();
   }
 
+  /**
+   * An empty option value means the default view, not "no filter".
+   *
+   * A `<select>` cannot hold `undefined`, so the default option carries "" and
+   * it is mapped back here. Sending "" to the API instead would be a status
+   * nobody defined.
+   */
+  protected onStatus(event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    this.status.set(value === "" ? undefined : (value as TenantStatus | "all"));
+    this.page.set(1);
+    this.load();
+  }
+
   protected load(): void {
     this.state.set(asyncLoading(this.state().data));
     this.platform
@@ -458,7 +499,8 @@ export class AllTenantsPage {
         pageSize: DEFAULT_PAGE_SIZE,
         search: this.search(),
         sort: this.sort(),
-        direction: this.direction()
+        direction: this.direction(),
+        status: this.status()
       })
       .subscribe({
         next: (data) => this.state.set({ status: "success", data, error: null }),

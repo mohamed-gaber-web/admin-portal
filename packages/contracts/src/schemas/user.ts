@@ -70,7 +70,19 @@ export type UserDetail = z.infer<typeof userDetailSchema>;
  * tenant a caller can name is a tenant a caller can iterate.
  */
 export const userQuerySchema = pageQuerySchema.extend({
-  status: z.union([userStatusSchema, z.literal("all")]).catch("all")
+  /*
+   * Omitted excludes suspended users rather than meaning "everything".
+   *
+   * Suspending is how an operator removes somebody — the account keeps its
+   * history and can be reactivated, but it is meant to be gone from the working
+   * list, and a remove that leaves the row in the table reads as one that did
+   * not happen. `"all"` asks for them back, which is what keeps Reactivate
+   * reachable.
+   */
+  status: z
+    .union([userStatusSchema, z.literal("all")])
+    .optional()
+    .catch(undefined)
 });
 
 export type UserQuery = z.infer<typeof userQuerySchema>;

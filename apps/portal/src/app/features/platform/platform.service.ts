@@ -49,6 +49,18 @@ export interface PlatformUserQuery extends PageQuery {
 }
 
 /**
+ * Listing tenants.
+ *
+ * `status` omitted is the default view, which hides removed (archived)
+ * tenants — deliberately not the same as `"all"`. Declared here rather than
+ * imported from the contracts package for the same reason `PlatformUserQuery`
+ * is: the portal's models layer is what these screens are typed against.
+ */
+export interface PlatformTenantQuery extends PageQuery {
+  status?: TenantStatus | "all";
+}
+
+/**
  * The cross-tenant screens' data.
  *
  * Deliberately a separate service from `TenantsService` and `UsersService`
@@ -68,13 +80,16 @@ export class PlatformService {
   private readonly api = inject(ApiService);
 
   /** Every tenant on the installation. */
-  listTenants(query: PageQuery): Observable<Page<TenantSummary>> {
+  listTenants(query: PlatformTenantQuery): Observable<Page<TenantSummary>> {
     return this.api.getValidated(API_ROUTES.platformTenants, tenantPageSchema, {
       page: query.page,
       pageSize: query.pageSize,
       search: query.search,
       sort: query.sort,
-      direction: query.direction
+      direction: query.direction,
+      // Left off entirely when unset, so the API applies its default view
+      // (removed tenants hidden) rather than being sent an empty string.
+      status: query.status
     });
   }
 

@@ -291,19 +291,19 @@ export const ar: Messages = {
 
   // ── Tenant lifecycle ─────────────────────────────────────────────────────
   "lifecycle.title": "دورة الحياة",
-  "lifecycle.subtitle": "إيقاف مساحة العمل هذه أو أرشفتها أو استعادتها.",
+  "lifecycle.subtitle": "إيقاف مساحة العمل هذه أو إزالتها أو استعادتها.",
   "lifecycle.suspend": "إيقاف",
   "lifecycle.reactivate": "إعادة التفعيل",
-  "lifecycle.archive": "أرشفة",
+  "lifecycle.archive": "إزالة",
   "lifecycle.restore": "استعادة",
 
   "lifecycle.suspendTitle": "إيقاف هذا المستأجر؟",
   "lifecycle.suspendBody":
     "لن يتمكّن أحد في {name} من تسجيل الدخول حتى تُعاد تفعيله. لن يُحذف أي شيء.",
-  "lifecycle.archiveTitle": "أرشفة هذا المستأجر؟",
+  "lifecycle.archiveTitle": "إزالة هذا المستأجر؟",
   "lifecycle.archiveBody":
     "سيختفي {name} من كل الشاشات ولن يتمكّن أحد فيه من تسجيل الدخول. تُحفظ بياناته ويمكن استعادته.",
-  "lifecycle.archiveWarning": "هذا يُخفي المستأجر في كل مكان. تأكّد أنه الصحيح.",
+  "lifecycle.archiveWarning": "هذا يزيل المستأجر من كل الشاشات. تأكّد أنه الصحيح.",
   "lifecycle.reactivateTitle": "إعادة تفعيل هذا المستأجر؟",
   "lifecycle.reactivateBody": "سيتمكّن أفراد {name} من تسجيل الدخول مرة أخرى.",
   "lifecycle.restoreTitle": "استعادة هذا المستأجر؟",
@@ -730,6 +730,8 @@ export const ar: Messages = {
   "users.searchPlaceholder": "البحث بالاسم أو البريد أو المستأجر…",
   "users.searchLabel": "البحث في المستخدمين",
   "users.filterStatus": "التصفية حسب الحالة",
+  "tenants.filterStatus": "التصفية حسب الحالة",
+  "tenants.statusCurrent": "الحالية",
   "users.columnUser": "المستخدم",
   "users.columnTenant": "المستأجر",
   "users.columnRole": "الدور",
@@ -742,7 +744,7 @@ export const ar: Messages = {
   "users.rowActions": "إجراءات {name}",
   "users.viewProfile": "عرض الملف الشخصي",
   "users.resendInvitation": "إعادة إرسال الدعوة",
-  "users.suspend": "إيقاف الوصول",
+  "users.suspend": "إزالة الوصول",
 
   "userStatus.active": "نشط",
   "userStatus.invited": "مدعو",

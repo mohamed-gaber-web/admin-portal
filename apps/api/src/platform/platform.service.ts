@@ -31,7 +31,7 @@ import {
   type AuditEntry,
   type CatalogPermissionRecord,
   type ModuleRecord,
-  type PageRequest,
+  type TenantPageRequest,
   type PlanRecord,
   type PlatformAdminRecord,
   type TenantDetail as TenantDetailRecord,
@@ -192,7 +192,7 @@ export class PlatformService {
   constructor(@Inject(DATABASE_POOL) private readonly pool: Pool) {}
 
   /** Every tenant on the installation, except the operators' own. */
-  async listTenants(request: PageRequest): Promise<Page<TenantSummary>> {
+  async listTenants(request: TenantPageRequest): Promise<Page<TenantSummary>> {
     const page = await withoutTenantScope(
       this.pool,
       { reason: "Platform administration: the tenant list spans every tenant by design." },

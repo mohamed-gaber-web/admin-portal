@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { isoDateSchema } from "./contract";
 import { moduleKeySchema } from "./module-keys";
-import { pageSchema } from "./page";
+import { pageQuerySchema, pageSchema } from "./page";
 
 /**
  * A tenant's lifecycle state, as every administration screen reads it.
@@ -235,6 +235,28 @@ export const tenantSummarySchema = z
   .strict();
 
 export type TenantSummary = z.infer<typeof tenantSummarySchema>;
+
+/**
+ * Listing tenants.
+ *
+ * `status` is how a screen asks for something other than the working set.
+ * Omitted is not "everything": it excludes archived tenants, because archiving
+ * is what an operator does to remove one, and a remove that leaves the row in
+ * the table reads as a remove that did not happen. `"all"` asks for them back,
+ * and naming a single status filters to it — which is what keeps Restore
+ * reachable, the reason the query used to return archived rows unconditionally.
+ *
+ * `catch(undefined)` rather than a rejection: a hand-typed `?status=nonsense`
+ * should show the default view, the same way `?page=abc` shows the first page.
+ */
+export const tenantQuerySchema = pageQuerySchema.extend({
+  status: z
+    .union([tenantStatusSchema, z.literal("all")])
+    .optional()
+    .catch(undefined)
+});
+
+export type TenantQuery = z.infer<typeof tenantQuerySchema>;
 
 export const tenantPageSchema = pageSchema(tenantSummarySchema);
 

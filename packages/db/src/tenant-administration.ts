@@ -183,6 +183,12 @@ const toSummary = (row: TenantSummaryRow): TenantSummary => ({
   createdAt: row.created_at
 });
 
+/** `PageRequest` plus the status filter the administration screens send. */
+export interface TenantPageRequest extends PageRequest {
+  /** Omitted hides archived tenants; `"all"` shows every status. */
+  status?: TenantStatus | "all";
+}
+
 export interface ListTenantsOptions {
   /**
    * Leave the reserved platform tenant out of the results.
@@ -205,11 +211,19 @@ export interface ListTenantsOptions {
  */
 export async function listTenants(
   db: Queryable,
-  request: PageRequest,
+  request: TenantPageRequest,
   options: ListTenantsOptions = {}
 ): Promise<PagedResult<TenantSummary>> {
   const like = likeArgument(request.search);
   const { limit, offset } = limitOffset(request);
+
+  /*
+   * Omitted hides archived, `"all"` hides nothing, and a named status filters
+   * to exactly it. Three cases rather than two: without the first, archiving a
+   * tenant leaves it sitting in the list it was archived from.
+   */
+  const excludeArchived = !request.status;
+  const exactStatus = !request.status || request.status === "all" ? null : request.status;
 
   const res = await db.query<TenantSummaryRow>(
     `SELECT t.id, t.name, t.slug, t.plan, t.created_at,
@@ -230,9 +244,18 @@ export async function listTenants(
      WHERE ($1::text IS NULL OR t.name ILIKE $1 ESCAPE '\\' OR t.slug ILIKE $1 ESCAPE '\\')
        AND ($4::boolean IS NOT TRUE OR NOT t.is_platform)
      GROUP BY t.id, p.user_limit
+     -- HAVING, not WHERE: the status expression reads count(u.id), so it does
+     -- not exist until the rows have been grouped. deleted_at could have gone
+     -- in the WHERE clause, but keeping both halves of one filter in one place
+     -- is worth more than the predicate pushdown on a table this size.
+     --
+     -- count(*) OVER () still reports the right total: window functions are
+     -- evaluated after HAVING, so it counts what survived the filter.
+     HAVING ($5::boolean IS NOT TRUE OR t.deleted_at IS NULL)
+        AND ($6::text IS NULL OR (${STATUS_EXPRESSION}) = $6)
      ${orderByClause(request, TENANT_SORT_COLUMNS, "name")}
      LIMIT $2 OFFSET $3`,
-    [like, limit, offset, options.excludePlatform ?? false]
+    [like, limit, offset, options.excludePlatform ?? false, excludeArchived, exactStatus]
   );
 
   return toPage(res.rows, request, toSummary);

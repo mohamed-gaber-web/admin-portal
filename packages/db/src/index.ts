@@ -38,6 +38,7 @@ export {
   setTenantStatus,
   isUuid,
   type ListTenantsOptions,
+  type TenantPageRequest,
   type TenantStatus,
   type TenantPlan,
   type TenantStatusTarget,

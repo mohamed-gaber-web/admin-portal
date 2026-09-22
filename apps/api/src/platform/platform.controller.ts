@@ -20,7 +20,7 @@ import {
   API_ROUTES,
   createPlatformAdminSchema,
   invitePlatformUserSchema,
-  pageQuerySchema,
+  tenantQuerySchema,
   createCompanySchema,
   createEnvironmentSchema,
   setTenantContractSchema,
@@ -38,7 +38,7 @@ import {
   type InvitePlatformUserInput,
   type IssuedUserInvitation,
   type Page,
-  type PageQuery,
+  type TenantQuery,
   type Plan,
   type PlatformAdmin,
   type PlatformAdminCreated,
@@ -99,7 +99,7 @@ export class PlatformController {
   @Get(API_ROUTES.platformTenants)
   @RequiresPlatformPermission("platform.tenant.read")
   listTenants(
-    @Query(new ZodValidationPipe(pageQuerySchema)) query: PageQuery
+    @Query(new ZodValidationPipe(tenantQuerySchema)) query: TenantQuery
   ): Promise<Page<TenantSummary>> {
     return this.platform.listTenants(query);
   }

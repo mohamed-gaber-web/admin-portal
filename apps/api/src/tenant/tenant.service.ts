@@ -11,7 +11,7 @@ import {
   withRequestTenantScope,
   type AuditActor,
   type AuditEntry,
-  type PageRequest,
+  type TenantPageRequest,
   type TenantDetail as TenantDetailRecord,
   type TenantStatusTarget,
   type TenantSummary as TenantSummaryRecord
@@ -115,7 +115,7 @@ export class TenantService {
    * `search` and `sort` still apply, so a search matching nothing correctly
    * returns an empty page rather than ignoring the filter.
    */
-  async list(request: PageRequest): Promise<Page<TenantSummary>> {
+  async list(request: TenantPageRequest): Promise<Page<TenantSummary>> {
     const page = await withRequestTenantScope(this.pool, (client) =>
       listTenants(client, request)
     );

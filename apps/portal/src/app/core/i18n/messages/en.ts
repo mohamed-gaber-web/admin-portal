@@ -297,20 +297,20 @@ export const en = {
 
   // ── Tenant lifecycle ─────────────────────────────────────────────────────
   "lifecycle.title": "Lifecycle",
-  "lifecycle.subtitle": "Suspend, archive or restore this workspace.",
+  "lifecycle.subtitle": "Suspend, remove or restore this workspace.",
   "lifecycle.suspend": "Suspend",
   "lifecycle.reactivate": "Reactivate",
-  "lifecycle.archive": "Archive",
+  "lifecycle.archive": "Remove",
   "lifecycle.restore": "Restore",
 
   "lifecycle.suspendTitle": "Suspend this tenant?",
   "lifecycle.suspendBody":
     "Nobody in {name} will be able to sign in until it is reactivated. Nothing is deleted.",
-  "lifecycle.archiveTitle": "Archive this tenant?",
+  "lifecycle.archiveTitle": "Remove this tenant?",
   "lifecycle.archiveBody":
     "{name} disappears from every screen and nobody in it can sign in. Its data is kept and it can be restored.",
   "lifecycle.archiveWarning":
-    "This hides the tenant everywhere. Check you have the right one.",
+    "This removes the tenant from every screen. Check you have the right one.",
   "lifecycle.reactivateTitle": "Reactivate this tenant?",
   "lifecycle.reactivateBody": "People in {name} will be able to sign in again.",
   "lifecycle.restoreTitle": "Restore this tenant?",
@@ -740,6 +740,8 @@ export const en = {
   "users.searchPlaceholder": "Search name, email or tenant…",
   "users.searchLabel": "Search users",
   "users.filterStatus": "Filter by status",
+  "tenants.filterStatus": "Filter by status",
+  "tenants.statusCurrent": "Current",
   "users.columnUser": "User",
   "users.columnTenant": "Tenant",
   "users.columnRole": "Role",
@@ -752,7 +754,7 @@ export const en = {
   "users.rowActions": "Actions for {name}",
   "users.viewProfile": "View profile",
   "users.resendInvitation": "Resend invitation",
-  "users.suspend": "Suspend access",
+  "users.suspend": "Remove access",
 
   "userStatus.active": "Active",
   "userStatus.invited": "Invited",
