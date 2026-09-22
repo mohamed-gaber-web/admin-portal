@@ -6,6 +6,7 @@ import {
   provisionTenantOnClient,
   setTenantStatus,
   TenantAlreadyExistsError,
+  AdminEmailAlreadyExistsError,
   withoutTenantScope,
   withRequestTenantScope,
   type AuditActor,
@@ -195,6 +196,12 @@ export class TenantService {
       if (err instanceof TenantAlreadyExistsError) {
         // 409, not a 500: the caller can fix this by choosing another slug.
         throw new ConflictException({ message: err.message, slug: err.slug });
+      }
+      if (err instanceof AdminEmailAlreadyExistsError) {
+        // Same reasoning, different field: an address already in use is the
+        // caller's input to correct, not a fault of this server. It used to
+        // arrive here as a raw unique violation and leave as a 500.
+        throw new ConflictException({ message: err.message, adminEmail: err.email });
       }
       throw err;
     }

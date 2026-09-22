@@ -224,6 +224,46 @@ describe.skipIf(!hasDb)("US-014 - tenant provisioning API", () => {
     });
   });
 
+  // The same rule, for the other field the caller supplies. `user.email` is
+  // unique across the installation, so an address already in use cannot become
+  // a new tenant's administrator. That is a correctable mistake, and the
+  // regression this covers is that it used to arrive as a raw unique violation
+  // and leave as a 500 — right outcome, wrong report, which is the shape of
+  // failure nobody investigates.
+  it("AC2: an administrator address already in use is rejected with a clear error", async () => {
+    const first = await post({
+      name: "Soylent",
+      slug: "soylent",
+      adminEmail: "shared@example.test"
+    });
+    expect(first.status).toBe(201);
+
+    const clash = await post({
+      name: "Soylent Two",
+      slug: "soylent-two",
+      adminEmail: "shared@example.test"
+    });
+    expect(clash.status).toBe(409);
+
+    const message = JSON.stringify(await clash.json());
+    expect(message).toContain("shared@example.test");
+    expect(message).toMatch(/already belongs/i);
+    expect(message).not.toMatch(
+      /duplicate key value|23505|violates unique constraint|Internal server error/i
+    );
+
+    // Not which tenant holds it: `platform.tenant.write` does not imply
+    // `platform.user.read`, so naming the holder would teach the caller a fact
+    // this endpoint has no business teaching them.
+    expect(message).not.toContain("soylent");
+
+    // Nothing half-built survived the rejection.
+    await withClient(db!.url, async (client) => {
+      const tenants = await client.query("SELECT id FROM tenant WHERE slug = $1", ["soylent-two"]);
+      expect(tenants.rowCount).toBe(0);
+    });
+  });
+
   /**
    * Choosing modules on the create form (the mobile-module-catalogue change).
    *

@@ -57,6 +57,38 @@ export class TenantAlreadyExistsError extends Error {
   }
 }
 
+/**
+ * Raised when the first administrator's address already belongs to somebody.
+ *
+ * `user_email_global_unique` makes an address identify exactly one person
+ * across the installation — that is what lets sign-in resolve the workspace
+ * from the address alone, and it means the address of an existing user in
+ * *any* tenant cannot become a new tenant's administrator.
+ *
+ * Typed for the same reason as the slug above: without it the unique violation
+ * reached the API as a raw driver error and became a 500, which tells an
+ * operator that the server is broken when what actually happened is that they
+ * typed an address somebody already has. Provisioning runs in one transaction,
+ * so the half-built tenant was always rolled back — the outcome was right and
+ * only the report was wrong, which is precisely the failure nobody
+ * investigates.
+ *
+ * The address is named because the caller just supplied it. The tenant holding
+ * it is not: `platform.tenant.write` does not imply `platform.user.read`, and
+ * answering "that belongs to tenant acme" would hand a caller a fact this
+ * endpoint has no business teaching them. Knowing the address is taken is
+ * enough to act on.
+ */
+export class AdminEmailAlreadyExistsError extends Error {
+  readonly email: string;
+
+  constructor(email: string) {
+    super(`The address "${email}" already belongs to a user. Choose a different administrator address.`);
+    this.name = "AdminEmailAlreadyExistsError";
+    this.email = email;
+  }
+}
+
 export interface ProvisionTenantInput {
   name: string;
   slug: string;
@@ -109,12 +141,21 @@ export function defaultAdminEmail(slug: string): string {
   return `admin@${slug}.local`;
 }
 
-function isUniqueViolation(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    (err as { code?: string }).code === UNIQUE_VIOLATION
-  );
+/**
+ * A unique violation, optionally narrowed to one index.
+ *
+ * `constraint` matters wherever a statement can breach more than one index:
+ * translating any violation into one meaning is how a real bug ends up
+ * reported as the collision the code happened to expect. Postgres names the
+ * index in `constraint`, and an unnamed match is refused rather than assumed,
+ * because a driver that stopped populating it would otherwise turn this into
+ * "any unique violation" without a test noticing.
+ */
+function isUniqueViolation(err: unknown, constraint?: string): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const { code, constraint: violated } = err as { code?: string; constraint?: string };
+  if (code !== UNIQUE_VIOLATION) return false;
+  return constraint === undefined || violated === constraint;
 }
 
 /**
@@ -193,11 +234,25 @@ export async function provisionTenantOnClient(
   }
 
   // "user" is a reserved word, so it stays quoted.
-  const userRes = await client.query<{ id: string; email: string }>(
-    'INSERT INTO "user" (tenant_id, email) VALUES ($1, $2) RETURNING id, email',
-    [tenant.id, email]
-  );
-  const adminUser = userRes.rows[0];
+  let adminUser: { id: string; email: string };
+  try {
+    const userRes = await client.query<{ id: string; email: string }>(
+      'INSERT INTO "user" (tenant_id, email) VALUES ($1, $2) RETURNING id, email',
+      [tenant.id, email]
+    );
+    adminUser = userRes.rows[0];
+  } catch (err) {
+    /*
+     * Only the global address index is translated. The tenant is brand new, so
+     * no per-tenant constraint on "user" can be the one that fired — and a
+     * unique violation this code did not anticipate must keep surfacing as
+     * itself rather than being reported as an address collision it is not.
+     */
+    if (isUniqueViolation(err, "user_email_global_unique")) {
+      throw new AdminEmailAlreadyExistsError(email);
+    }
+    throw err;
+  }
 
   const adminRole = roles.find((role) => role.name === DEFAULT_ADMIN_ROLE);
   if (!adminRole) {

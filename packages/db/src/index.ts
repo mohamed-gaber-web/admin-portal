@@ -255,6 +255,7 @@ export {
   provisionTenantOnClient,
   defaultAdminEmail,
   TenantAlreadyExistsError,
+  AdminEmailAlreadyExistsError,
   DEFAULT_ROLES,
   DEFAULT_ADMIN_ROLE,
   type ProvisionTenantInput,
