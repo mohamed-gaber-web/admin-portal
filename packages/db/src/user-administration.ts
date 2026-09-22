@@ -54,6 +54,30 @@ const toColumnStatus = (status: "active" | "suspended"): string =>
   status === "suspended" ? "disabled" : "active";
 
 /**
+ * The address a removed user is left holding.
+ *
+ * Removing somebody has to release their address. `user_email_global_unique`
+ * is on `lower(email)` alone and knows nothing about status, so a suspended row
+ * goes on reserving the address it was created with — and because the default
+ * list hides removed users, an operator sees an address that is taken by
+ * nobody they can find. That was the trap: remove the account, try to reuse the
+ * address, get told it already belongs to a user who is not on the screen.
+ *
+ * `.invalid` is reserved by RFC 2606 and resolves nowhere, so the replacement
+ * cannot collide with a real address or accidentally receive mail. The user id
+ * keeps it unique without a lookup, and makes the row traceable.
+ *
+ * The real address is not lost: the audit entry for the removal records it in
+ * `before`, and `email` is not a redacted key.
+ */
+const RELEASED_ADDRESS_PATTERN = /^removed\+[0-9a-f-]{36}@invalid$/i;
+
+const releasedAddress = (userId: string): string => `removed+${userId}@invalid`;
+
+const holdsReleasedAddress = (email: string): boolean =>
+  RELEASED_ADDRESS_PATTERN.test(email);
+
+/**
  * The role shown in the list's single "role" column.
  *
  * `admin` wins when held, because that is the fact someone scanning the list is
@@ -231,8 +255,14 @@ export async function setUserStatus(
 ): Promise<UserDetail | null> {
   if (!isUuid(userId)) return null;
 
-  const current = await db.query<{ id: string; tenant_id: string; status: string; has_password: boolean }>(
-    `SELECT id, tenant_id, status, password_hash IS NOT NULL AS has_password
+  const current = await db.query<{
+    id: string;
+    tenant_id: string;
+    status: string;
+    email: string;
+    has_password: boolean;
+  }>(
+    `SELECT id, tenant_id, status, email, password_hash IS NOT NULL AS has_password
      FROM "user" WHERE id = $1`,
     [userId]
   );
@@ -244,24 +274,63 @@ export async function setUserStatus(
   }
 
   const next = toColumnStatus(status);
-  if (row.status !== next) {
-    await db.query(`UPDATE "user" SET status = $2, updated_at = now() WHERE id = $1`, [
-      userId,
-      next
-    ]);
+
+  /*
+   * Releasing is decided separately from the transition, so that removing a
+   * user who is *already* removed still frees their address. Without that, every
+   * account suspended before this existed would hold its address forever with no
+   * operation able to let go of it — and the accounts an operator most wants to
+   * clear are exactly the ones already removed.
+   *
+   * Reactivating deliberately does not put the address back. It is gone the
+   * moment it is released, which is the point of releasing it; somebody may
+   * already have taken it. A reactivated account is reachable again only once an
+   * operator gives it an address, and `UserHasNoCredentialError` already
+   * establishes that an account can exist in a state that cannot sign in.
+   */
+  const releasing = status === "suspended" && !holdsReleasedAddress(row.email);
+  const email = releasing ? releasedAddress(userId) : row.email;
+
+  if (row.status !== next || releasing) {
+    /*
+     * `name` is pinned on the way out, because it is not always a stored value:
+     * a user who never supplied one is displayed as the local part of their
+     * address, so releasing the address would rename them to the placeholder
+     * and a list of removed accounts would read as a column of UUIDs. Writing
+     * the old local part into the column keeps the row identifiable to the
+     * operator who removed it.
+     *
+     * Not a privacy measure, and not pretending to be one: the removal's audit
+     * entry records the full address, which is what makes this a release for
+     * reuse rather than an erasure.
+     */
+    await db.query(
+      `UPDATE "user"
+          SET status = $2,
+              email = $3,
+              name = CASE WHEN $4::boolean AND name IS NULL THEN $5 ELSE name END,
+              updated_at = now()
+        WHERE id = $1`,
+      [userId, next, email, releasing, row.email.split("@")[0]]
+    );
 
     // The two actions are written as literals on their own line rather than
     // chosen by a ternary inside the call. The US-015 guard reads these
     // statically to check that every action a route claims is one the source
     // actually writes, and an expression it cannot evaluate is an action it
     // cannot track.
+    // `email` is included only when it moved, so a plain suspend/reactivate
+    // still diffs to `status` alone. The removal entry is where the real
+    // address survives — `email` is not a redacted key, so `before` holds it
+    // verbatim and the account stays identifiable after the column no longer
+    // names anybody.
     const entry = {
       tenantId: row.tenant_id,
       entityType: "user",
       entityId: userId,
       actor,
-      before: { status: row.status },
-      after: { status: next }
+      before: releasing ? { status: row.status, email: row.email } : { status: row.status },
+      after: releasing ? { status: next, email } : { status: next }
     };
 
     if (status === "suspended") {

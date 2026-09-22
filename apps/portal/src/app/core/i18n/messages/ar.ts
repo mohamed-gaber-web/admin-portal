@@ -718,7 +718,7 @@ export const ar: Messages = {
   "platformUsers.reactivate": "استعادة الوصول",
   "platformUsers.confirmTitle": "تغيير وصول {name}؟",
   "platformUsers.confirmSuspend":
-    "سيُسجَّل خروجه من {tenant} ولن يتمكّن من تسجيل الدخول حتى يُلغى هذا الإجراء.",
+    "سيُسجَّل خروجه من {tenant} ولن يتمكّن من تسجيل الدخول. سيُحرَّر بريده الإلكتروني ليصبح قابلًا للاستخدام مرة أخرى، واستعادة الوصول لا تعيده.",
   "platformUsers.confirmReactivate": "سيتمكّن من تسجيل الدخول إلى {tenant} مجددًا.",
   "platformUsers.updated": "تم تحديث {name}",
   "platformUsers.updateFailed": "تعذّر تطبيق هذا التغيير.",

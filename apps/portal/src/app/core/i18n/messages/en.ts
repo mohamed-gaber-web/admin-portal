@@ -728,7 +728,7 @@ export const en = {
   "platformUsers.reactivate": "Restore access",
   "platformUsers.confirmTitle": "Change access for {name}?",
   "platformUsers.confirmSuspend":
-    "They will be signed out of {tenant} and unable to sign in again until this is undone.",
+    "They will be signed out of {tenant} and unable to sign in. Their email address is released so it can be used again, and restoring access does not bring it back.",
   "platformUsers.confirmReactivate": "They will be able to sign in to {tenant} again.",
   "platformUsers.updated": "{name} updated",
   "platformUsers.updateFailed": "That change could not be applied.",

@@ -276,6 +276,45 @@ describe.skipIf(!hasDb)("administration responses match their contracts", () => 
     expect(((await res.json()) as { message: string }).message).toContain("invitation");
   });
 
+  it("PATCH /users/:id/status releases the address when a user is removed", async () => {
+    const address = "reusable@contract-co.local";
+
+    const invited = await parsed("/users/invitations", issuedUserInvitationSchema, {
+      method: "POST",
+      body: JSON.stringify({ email: address, role: "viewer" })
+    });
+
+    const removed = await parsed(`/users/${invited.user.id}/status`, userDetailSchema, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "suspended" })
+    });
+
+    expect(removed.status).toBe("suspended");
+    // The address is gone from the row, replaced by something that cannot
+    // collide with a real one or receive mail (RFC 2606 reserves .invalid).
+    expect(removed.email).not.toBe(address);
+    expect(removed.email).toMatch(/^removed\+[0-9a-f-]{36}@invalid$/i);
+
+    // The point of releasing it: the address can be used again. Without this
+    // the unique index would refuse, because it is on lower(email) alone and
+    // knows nothing about status.
+    const reused = await parsed("/users/invitations", issuedUserInvitationSchema, {
+      method: "POST",
+      body: JSON.stringify({ email: address, role: "viewer" })
+    });
+    expect(reused.user.email).toBe(address);
+    expect(reused.user.id).not.toBe(invited.user.id);
+
+    // Removing an already-removed user is a no-op rather than a second
+    // release: the address it holds is already released, and rewriting it would
+    // change the row every time somebody clicked.
+    const again = await parsed(`/users/${invited.user.id}/status`, userDetailSchema, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "suspended" })
+    });
+    expect(again.email).toBe(removed.email);
+  });
+
   it("PUT /users/:id/roles replaces the whole set", async () => {
     const before = await parsed(`/users/${tenant.userId}`, userDetailSchema);
     expect(before.roles).toEqual(["admin"]);
