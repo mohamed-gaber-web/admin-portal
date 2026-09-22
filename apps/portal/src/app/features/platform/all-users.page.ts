@@ -230,8 +230,16 @@ import { PlatformService } from "./platform.service";
                           <!-- Absent for an invited account: reactivating one
                                that never had a password is refused by the API,
                                and suspending it changes nothing anybody can
-                               observe. -->
-                          @if (user.status === "active") {
+                               observe.
+
+                               Offered to an already-removed account too, when
+                               it is still holding a real address. Removing
+                               releases the address, and an account removed
+                               before that existed kept its own — so without
+                               this there is no way to ask for it back, and the
+                               address stays reserved by somebody the default
+                               list does not even show. -->
+                          @if (user.status === "active" || holdsAddress(user)) {
                             <button
                               uiMenuItem
                               type="button"
@@ -239,7 +247,7 @@ import { PlatformService } from "./platform.service";
                               (click)="ask(user, 'suspended')"
                             >
                               <ui-icon name="lock" [size]="15" />
-                              {{ t("users.suspend") }}
+                              {{ t(user.status === "active" ? "users.suspend" : "users.releaseAddress") }}
                             </button>
                           }
                         </div>
@@ -399,6 +407,17 @@ export class AllUsersPage {
         error: (error: unknown) =>
           this.state.set(asyncError(describeError(error, this.t, "users.loadError")))
       });
+  }
+
+  /**
+   * A removed account still occupying a real address.
+   *
+   * The placeholder the API writes is `removed+<id>@invalid`; `.invalid` is
+   * reserved by RFC 2606 and can belong to nothing else, so the suffix is
+   * enough to recognise one without the portal restating the whole format.
+   */
+  protected holdsAddress(user: UserSummary): boolean {
+    return user.status === "suspended" && !user.email.endsWith("@invalid");
   }
 
   protected ask(user: UserSummary, status: "active" | "suspended"): void {

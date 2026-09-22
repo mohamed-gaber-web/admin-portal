@@ -755,6 +755,7 @@ export const en = {
   "users.viewProfile": "View profile",
   "users.resendInvitation": "Resend invitation",
   "users.suspend": "Remove access",
+  "users.releaseAddress": "Release email address",
 
   "userStatus.active": "Active",
   "userStatus.invited": "Invited",

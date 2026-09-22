@@ -745,6 +745,7 @@ export const ar: Messages = {
   "users.viewProfile": "عرض الملف الشخصي",
   "users.resendInvitation": "إعادة إرسال الدعوة",
   "users.suspend": "إزالة الوصول",
+  "users.releaseAddress": "تحرير البريد الإلكتروني",
 
   "userStatus.active": "نشط",
   "userStatus.invited": "مدعو",
