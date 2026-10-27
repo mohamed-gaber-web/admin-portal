@@ -145,9 +145,38 @@ module.exports = {
         // right-to-left in Arabic. Same `--slide-from` switch as the drawer.
         shimmer: {
           "100%": { transform: "translateX(calc(var(--slide-from, -1) * -100%))" }
+        },
+        /**
+         * The tenant dashboard's entrance. Longer and further than `slide-up`,
+         * because it is a once-per-visit welcome rather than a control
+         * responding; staggered per card through an inline `animation-delay`.
+         */
+        rise: {
+          from: { opacity: "0", transform: "translateY(14px) scale(0.985)" },
+          to: { opacity: "1", transform: "translateY(0) scale(1)" }
+        },
+        // Slow drift for the hero's background glows.
+        float: {
+          "0%, 100%": { transform: "translate(0, 0) scale(1)" },
+          "50%": { transform: "translate(12px, -10px) scale(1.06)" }
+        },
+        // The setup ring filling from empty to its value, both set per element.
+        "ring-fill": {
+          from: { strokeDashoffset: "var(--ring-from)" },
+          to: { strokeDashoffset: "var(--ring-to)" }
+        },
+        // A completed step's tick landing.
+        pop: {
+          "0%": { transform: "scale(0.4)", opacity: "0" },
+          "70%": { transform: "scale(1.15)", opacity: "1" },
+          "100%": { transform: "scale(1)" }
         }
       },
       animation: {
+        rise: "rise 560ms cubic-bezier(0.16, 1, 0.3, 1) both",
+        float: "float 9s ease-in-out infinite",
+        "ring-fill": "ring-fill 1.1s cubic-bezier(0.16, 1, 0.3, 1) 200ms both",
+        pop: "pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both",
         "fade-in": "fade-in 150ms ease-out",
         "slide-up": "slide-up 200ms cubic-bezier(0.16, 1, 0.3, 1)",
         "slide-in-start": "slide-in-start 200ms cubic-bezier(0.16, 1, 0.3, 1)",

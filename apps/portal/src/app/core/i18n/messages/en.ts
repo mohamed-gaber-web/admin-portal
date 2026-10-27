@@ -214,6 +214,66 @@ export const en = {
   "dashboard.range90d": "90d",
   "dashboard.range12m": "12m",
 
+  // A tenant's own landing screen — setup checklist and feature discovery.
+  "tenantDashboard.subtitle": "Welcome to {workspace}. Everything you can do starts here.",
+  "tenantDashboard.heroEyebrow": "Getting started",
+  "tenantDashboard.heroTitle": "Let's get {workspace} up and running",
+  "tenantDashboard.heroBody":
+    "A few steps connect your ERP, put the mobile app in your team's hands and bring your colleagues in.",
+  "tenantDashboard.heroDoneEyebrow": "Ready to go",
+  "tenantDashboard.heroDoneTitle": "{workspace} is all set",
+  "tenantDashboard.heroDoneBody":
+    "Everything is connected. Explore your modules below to see what your team can do.",
+  "tenantDashboard.continue": "Next: {step}",
+  "tenantDashboard.progress": "{done} of {total} steps done",
+  "tenantDashboard.checklist": "Setup checklist",
+  "tenantDashboard.checklistSubtitle": "Work through these in order. Each one is checked live.",
+  "tenantDashboard.stepDone": "Done",
+  "tenantDashboard.stepNext": "Up next",
+  "tenantDashboard.step.connect.title": "Connect Dynamics 365",
+  "tenantDashboard.step.connect.body":
+    "Add your D365 credentials so orders, stock and customers flow into the app.",
+  "tenantDashboard.step.connect.cta": "Connect",
+  "tenantDashboard.step.mobile.title": "Set up the mobile app",
+  "tenantDashboard.step.mobile.body":
+    "Tell field devices where to sign in and which app version they need.",
+  "tenantDashboard.step.mobile.cta": "Configure",
+  "tenantDashboard.step.team.title": "Invite your team",
+  "tenantDashboard.step.team.body":
+    "Send invitations to the people who will use the portal and the app.",
+  "tenantDashboard.step.team.cta": "Invite",
+  "tenantDashboard.atAGlance": "At a glance",
+  "tenantDashboard.ofTotal": "of {total}",
+  "tenantDashboard.stat.team": "Team members",
+  "tenantDashboard.stat.invitations": "Pending invitations",
+  "tenantDashboard.stat.modules": "Active modules",
+  "tenantDashboard.stat.environments": "Connected environments",
+  "tenantDashboard.modules": "Your modules",
+  "tenantDashboard.modulesSubtitle":
+    "What your plan includes. Each one appears in the mobile app for your team.",
+  "tenantDashboard.modulesEmpty":
+    "No modules are active yet. Your account manager switches on what you have bought.",
+  "tenantDashboard.availableTitle": "Available to add",
+  "tenantDashboard.availableBody": "Ask your account manager about any of these.",
+  "tenantDashboard.explore": "Explore the portal",
+  "tenantDashboard.exploreSubtitle": "Everything an administrator can do, one click away.",
+  "tenantDashboard.explore.users.title": "Users",
+  "tenantDashboard.explore.users.body":
+    "Invite colleagues, suspend access and see who has signed in.",
+  "tenantDashboard.explore.roles.title": "Roles and permissions",
+  "tenantDashboard.explore.roles.body":
+    "Decide who can see and change each part of your workspace.",
+  "tenantDashboard.explore.configuration.title": "ERP and mobile",
+  "tenantDashboard.explore.configuration.body":
+    "Manage D365 connections, credentials and the mobile app's settings.",
+  "tenantDashboard.explore.activity.title": "Activity log",
+  "tenantDashboard.explore.activity.body":
+    "A permanent record of every change made in your workspace.",
+  "tenantDashboard.explore.settings.title": "Security",
+  "tenantDashboard.explore.settings.body":
+    "Turn on two-step verification and manage your own account.",
+  "tenantDashboard.open": "Open",
+
   // Metric labels. Held here rather than in the fixture so the tiles are
   // translated the day the metrics endpoint replaces it — an API returning
   // display text in one language is the usual way localisation gets stuck.
