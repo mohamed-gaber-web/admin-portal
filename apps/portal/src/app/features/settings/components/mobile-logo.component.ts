@@ -17,7 +17,7 @@ import {
   type MobileConfig
 } from "@growpath/contracts";
 import { ButtonComponent } from "@shared/ui";
-import { ConfigurationService } from "../configuration.service";
+import { ConfigurationService } from "@features/configuration/configuration.service";
 
 /**
  * The box a logo is scaled into before upload, in pixels.
@@ -56,8 +56,9 @@ const decodedBytes = (dataUrl: string): number => {
  * the marketing folder — and still land under the cap the API enforces, and it
  * means the server only ever receives a clean PNG or WebP drawn from pixels.
  *
- * Rendered only once the configuration exists: the API answers 404 otherwise,
- * because a logo with no devices to show it on is not worth storing.
+ * Lives on Settings → Appearance. Rendered only once the mobile configuration
+ * exists: the API answers 404 otherwise, because a logo with no devices to show
+ * it on is not worth storing. The card around it carries the title.
  */
 @Component({
   selector: "app-mobile-logo",
@@ -66,14 +67,7 @@ const decodedBytes = (dataUrl: string): number => {
   imports: [ButtonComponent],
   host: { class: "block" },
   template: `
-    <div class="space-y-4 rounded-xl border border-border p-4">
-      <div class="min-w-0">
-        <p class="text-sm font-semibold text-foreground">{{ t("mobileLogo.title") }}</p>
-        <p class="mt-0.5 text-xs leading-relaxed text-foreground-muted">
-          {{ t("mobileLogo.subtitle") }}
-        </p>
-      </div>
-
+    <div class="space-y-4">
       <div class="flex flex-wrap items-center gap-4">
         <div
           class="flex h-20 w-48 shrink-0 items-center justify-center rounded-lg border border-dashed border-border bg-white p-2"

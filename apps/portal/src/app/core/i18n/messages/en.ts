@@ -850,6 +850,10 @@ export const en = {
   "mobileLogo.wrongType": "Choose a PNG, JPEG or WebP image.",
   "mobileLogo.unreadable": "That image could not be read.",
   "mobileLogo.tooLarge": "That image is too detailed to fit. Try a simpler version of the logo.",
+  "mobileLogo.needsConfigTitle": "Set up the mobile app first",
+  "mobileLogo.needsConfigBody":
+    "The logo is saved with the mobile app configuration, which this workspace does not have yet.",
+  "mobileLogo.needsConfigLink": "Go to Configuration",
 
   "platformUsers.title": "All users",
   "platformUsers.subtitle": "Everyone with an account, across every tenant.",

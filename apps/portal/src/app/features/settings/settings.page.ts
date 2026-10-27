@@ -5,9 +5,12 @@ import {
   inject,
   signal
 } from "@angular/core";
+import { RouterLink } from "@angular/router";
 import { AuthService } from "@core/auth/auth.service";
 import { SessionStore } from "@core/auth/session.store";
 import { injectT } from "@core/i18n/i18n.service";
+import { ConfigurationService } from "@features/configuration/configuration.service";
+import type { MobileConfig } from "@growpath/contracts";
 import {
   AlertComponent,
   AvatarComponent,
@@ -20,6 +23,7 @@ import {
 } from "@shared/ui";
 import { LocaleToggleComponent } from "../../layout/locale-toggle.component";
 import { MfaEnrolmentComponent } from "./components/mfa-enrolment.component";
+import { MobileLogoComponent } from "./components/mobile-logo.component";
 import { PageHeaderComponent } from "../../layout/page-header.component";
 import { ThemeToggleComponent } from "../../layout/theme-toggle.component";
 
@@ -49,7 +53,9 @@ import { ThemeToggleComponent } from "../../layout/theme-toggle.component";
     IconComponent,
     LocaleToggleComponent,
     MfaEnrolmentComponent,
+    MobileLogoComponent,
     PageHeaderComponent,
+    RouterLink,
     TabsComponent,
     ThemeToggleComponent
   ],
@@ -88,6 +94,37 @@ import { ThemeToggleComponent } from "../../layout/theme-toggle.component";
             <app-locale-toggle />
           </div>
         </ui-card>
+
+        <!--
+          The company logo applies to every device in the tenant, not to this
+          browser, so it is its own card rather than a row in the one above.
+          Hidden for a session that cannot read the tenant's configuration —
+          operators included, whose platform workspace has no mobile app.
+        -->
+        @if (canSeeLogo() && logoConfig() !== undefined) {
+          <ui-card class="mt-6 block max-w-2xl animate-fade-in">
+            <ui-card-header
+              [title]="t('mobileLogo.title')"
+              [description]="t('mobileLogo.subtitle')"
+            />
+            <div class="mt-6">
+              @if (logoConfig(); as config) {
+                <app-mobile-logo
+                  [config]="config"
+                  [readOnly]="!canManageLogo()"
+                  (changed)="logoConfig.set($event)"
+                />
+              } @else {
+                <ui-alert tone="info" [title]="t('mobileLogo.needsConfigTitle')">
+                  {{ t("mobileLogo.needsConfigBody") }}
+                  <a routerLink="/configuration" class="font-medium text-primary underline">
+                    {{ t("mobileLogo.needsConfigLink") }}
+                  </a>
+                </ui-alert>
+              }
+            </div>
+          </ui-card>
+        }
       }
 
       @case ("security") {
@@ -211,4 +248,24 @@ export class SettingsPage {
   ]);
 
   protected readonly active = signal("profile");
+
+  private readonly configuration = inject(ConfigurationService);
+
+  protected readonly canSeeLogo = computed(() => this.session.hasPermission("tenant.read"));
+  protected readonly canManageLogo = computed(() => this.session.hasPermission("tenant.write"));
+
+  /**
+   * The mobile configuration the logo belongs to. Undefined while loading or
+   * if the load failed (the card stays hidden), null when the tenant has not set
+   * up the mobile app yet.
+   */
+  protected readonly logoConfig = signal<MobileConfig | null | undefined>(undefined);
+
+  constructor() {
+    if (!this.canSeeLogo()) return;
+    this.configuration.getMobileConfig().subscribe({
+      next: (config) => this.logoConfig.set(config),
+      error: () => this.logoConfig.set(undefined)
+    });
+  }
 }

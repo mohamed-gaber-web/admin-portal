@@ -831,6 +831,10 @@ export const ar: Messages = {
   "mobileLogo.wrongType": "اختر صورة PNG أو JPEG أو WebP.",
   "mobileLogo.unreadable": "تعذّرت قراءة هذه الصورة.",
   "mobileLogo.tooLarge": "هذه الصورة مفصّلة أكثر من اللازم. جرّب نسخة أبسط من الشعار.",
+  "mobileLogo.needsConfigTitle": "أعِدّ تطبيق الجوال أولًا",
+  "mobileLogo.needsConfigBody":
+    "يُحفظ الشعار مع إعدادات تطبيق الجوال، وهي غير موجودة بعد في مساحة العمل هذه.",
+  "mobileLogo.needsConfigLink": "الانتقال إلى الإعدادات الفنية",
 
   "platformUsers.title": "كل المستخدمين",
   "platformUsers.subtitle": "كل من لديه حساب، عبر جميع المستأجرين.",
