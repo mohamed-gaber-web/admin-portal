@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from "@angular/core";
-import { RouterLink } from "@angular/router";
+import { ActivatedRoute, RouterLink } from "@angular/router";
 import { SessionStore } from "@core/auth/session.store";
 import { describeError } from "@core/http/api-error";
 import { I18nService, injectT } from "@core/i18n/i18n.service";
@@ -475,6 +475,11 @@ export class AllTenantsPage {
 
   constructor() {
     this.load();
+    // `?create=1` is how the dashboard's "Create tenant" lands here with the
+    // dialog already open. The template still gates it on the permission.
+    if (inject(ActivatedRoute).snapshot.queryParamMap.get("create") === "1") {
+      this.dialogOpen.set(true);
+    }
   }
 
   /**

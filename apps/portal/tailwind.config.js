@@ -165,6 +165,12 @@ module.exports = {
           from: { strokeDashoffset: "var(--ring-from)" },
           to: { strokeDashoffset: "var(--ring-to)" }
         },
+        // A bar filling along the reading direction; pair with
+        // `origin-left rtl:origin-right` so it grows from the start edge.
+        "grow-x": {
+          from: { transform: "scaleX(0)" },
+          to: { transform: "scaleX(1)" }
+        },
         // A completed step's tick landing.
         pop: {
           "0%": { transform: "scale(0.4)", opacity: "0" },
@@ -176,6 +182,7 @@ module.exports = {
         rise: "rise 560ms cubic-bezier(0.16, 1, 0.3, 1) both",
         float: "float 9s ease-in-out infinite",
         "ring-fill": "ring-fill 1.1s cubic-bezier(0.16, 1, 0.3, 1) 200ms both",
+        "grow-x": "grow-x 900ms cubic-bezier(0.16, 1, 0.3, 1) both",
         pop: "pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both",
         "fade-in": "fade-in 150ms ease-out",
         "slide-up": "slide-up 200ms cubic-bezier(0.16, 1, 0.3, 1)",

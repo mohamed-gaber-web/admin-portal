@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, input } from "@angular/core";
 import { RouterLink } from "@angular/router";
-import { injectT } from "@core/i18n/i18n.service";
+import { injectT, type MessageParams } from "@core/i18n/i18n.service";
 import type { MessageKey } from "@core/i18n/messages/en";
 import { IconComponent, type IconName } from "@shared/ui";
 
@@ -11,6 +11,8 @@ export interface AttentionItem {
   /** Message keys, not text — see the note on `Metric.labelKey`. */
   titleKey: MessageKey;
   detailKey: MessageKey;
+  /** Filled into both keys — counts, names, dates. */
+  params?: MessageParams;
   route: string;
 }
 
@@ -38,7 +40,7 @@ export interface AttentionItem {
     @if (items().length === 0) {
       <div class="flex flex-col items-center gap-2 py-8 text-center">
         <span
-          class="flex h-10 w-10 items-center justify-center rounded-xl bg-success-subtle text-success"
+          class="flex h-10 w-10 animate-pop items-center justify-center rounded-xl bg-success-subtle text-success"
         >
           <ui-icon name="check-circle" [size]="20" />
         </span>
@@ -51,8 +53,8 @@ export interface AttentionItem {
       </div>
     } @else {
       <ul class="space-y-1.5">
-        @for (item of items(); track item.id) {
-          <li>
+        @for (item of items(); track item.id; let i = $index) {
+          <li class="animate-rise" [style.animation-delay.ms]="240 + i * 70">
             <a
               [routerLink]="item.route"
               class="group flex items-start gap-3 rounded-xl p-2.5 transition-colors duration-200 hover:bg-surface-muted"
@@ -67,8 +69,8 @@ export interface AttentionItem {
               </span>
 
               <div class="min-w-0 flex-1">
-                <p class="text-sm font-medium text-foreground">{{ t(item.titleKey) }}</p>
-                <p class="text-xs text-foreground-muted">{{ t(item.detailKey) }}</p>
+                <p class="text-sm font-medium text-foreground">{{ t(item.titleKey, item.params) }}</p>
+                <p class="text-xs text-foreground-muted">{{ t(item.detailKey, item.params) }}</p>
               </div>
 
               <ui-icon

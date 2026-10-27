@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from "@angular/core";
+import { ActivatedRoute } from "@angular/router";
 import { SessionStore } from "@core/auth/session.store";
 import { describeError } from "@core/http/api-error";
 import { injectT } from "@core/i18n/i18n.service";
@@ -385,6 +386,13 @@ export class AllUsersPage {
 
   constructor() {
     this.load();
+    // `?invite=1`: the dashboard's "Invite user" quick action.
+    if (
+      this.canInvite() &&
+      inject(ActivatedRoute).snapshot.queryParamMap.get("invite") === "1"
+    ) {
+      this.openInvite();
+    }
   }
 
   /**
