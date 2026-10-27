@@ -6,7 +6,6 @@ import {
   Ip,
   NotFoundException,
   Param,
-  Patch,
   Post,
   Query,
   Req,
@@ -17,15 +16,13 @@ import {
   API_ROUTES,
   createTenantSchema,
   pageQuerySchema,
-  updateTenantStatusSchema,
   type ActivityEntry,
   type CreateTenantInput,
   type Page,
   type PageQuery,
   type ProvisionedTenant,
   type TenantDetail,
-  type TenantSummary,
-  type UpdateTenantStatusInput
+  type TenantSummary
 } from "@growpath/contracts";
 import { AccessTokenGuard } from "../auth/access-token.guard";
 import { PlatformGuard, RequiresPlatformPermission } from "../auth/platform.guard";
@@ -37,9 +34,16 @@ import { actorFrom } from "../common/actor";
  * Tenant provisioning and administration.
  *
  * The guard is applied per route rather than to the controller, because the
- * routes here answer to two different authorities: the reads and the lifecycle
- * transition are the caller's own tenant, while provisioning creates a tenant
- * that belongs to nobody yet and is a platform operation.
+ * routes here answer to two different authorities: the reads are the caller's
+ * own tenant, while provisioning creates a tenant that belongs to nobody yet and
+ * is a platform operation.
+ *
+ * There is deliberately no lifecycle transition here. Whether a workspace runs
+ * is the operator's decision, like which modules it holds — a tenant-scoped
+ * `PATCH /tenants/:id/status` let any signed-in member, a viewer included,
+ * suspend or archive their own organisation and lock everyone out with no way
+ * back. Suspend, reactivate, archive and restore live only at
+ * `PATCH /platform/tenants/:id/status`.
  */
 @Controller()
 export class TenantController {
@@ -108,27 +112,5 @@ export class TenantController {
       throw new NotFoundException({ message: "Tenant not found." });
     }
     return entries;
-  }
-
-  /**
-   * Suspends, reactivates, archives or restores a tenant.
-   *
-   * PATCH rather than POST-per-verb, and it takes the state to reach rather
-   * than the verb to apply, which makes a retried request a no-op instead of a
-   * second transition.
-   */
-  @Patch(API_ROUTES.tenantStatus)
-  @UseGuards(AccessTokenGuard)
-  async setStatus(
-    @Param("id") id: string,
-    @Body(new ZodValidationPipe(updateTenantStatusSchema)) dto: UpdateTenantStatusInput,
-    @Req() request: Request,
-    @Ip() ip: string
-  ): Promise<TenantDetail> {
-    const tenant = await this.tenants.setStatus(id, dto.status, actorFrom(request, ip));
-    if (!tenant) {
-      throw new NotFoundException({ message: "Tenant not found." });
-    }
-    return tenant;
   }
 }

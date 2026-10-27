@@ -14,24 +14,22 @@ import type {
   Page,
   PageQuery,
   TenantDetail,
-  TenantStatus,
   TenantSummary
 } from "@core/models";
 
 /**
  * Tenants.
  *
- * Every method is a real request. The list, the detail and the lifecycle
- * transition are served by `GET /tenants`, `GET /tenants/:id` and
- * `PATCH /tenants/:id/status`; the lifecycle route is the one that finally
- * claims the `tenant.soft_deleted` and `tenant.restored` audit actions that
- * `softDeleteTenant()` and `restoreTenant()` had been writing since US-010 with
- * no endpoint to reach them.
+ * Every method is a real request, served by `GET /tenants`, `GET /tenants/:id`
+ * and `GET /tenants/:id/activity`.
+ *
+ * Read-only on purpose. Suspending, archiving and restoring a workspace is the
+ * operator's decision and lives on `PlatformService` — a tenant able to switch
+ * itself off could lock out every one of its own users with no way back.
  *
  * Responses are parsed through the shared contract schemas rather than trusted:
- * these screens drive destructive actions, and a silently-renamed field
- * surfacing as `undefined` in a confirmation dialog is the failure worth being
- * loud about.
+ * a silently-renamed field surfacing as `undefined` on screen is the failure
+ * worth being loud about.
  */
 @Injectable({ providedIn: "root" })
 export class TenantsService {
@@ -66,28 +64,6 @@ export class TenantsService {
     return this.api.getValidated(
       pathFor(API_ROUTES.tenantActivity, { id }),
       z.array(activityEntrySchema)
-    );
-  }
-
-  /**
-   * Applies a lifecycle transition — suspend, reactivate, archive or restore.
-   *
-   * The target state travels rather than the verb, which is what makes a
-   * retried request a no-op instead of a second transition. `archived` maps to
-   * the soft delete, so nothing is removed and a restore is a genuine recovery.
-   *
-   * Writes `tenant.soft_deleted`, `tenant.restored`, `tenant.suspended` or
-   * `tenant.reactivated` to the audit log, depending on which transition
-   * actually occurred.
-   */
-  setStatus(id: string, status: TenantStatus): Observable<TenantSummary> {
-    return this.api.patchValidated(
-      pathFor(API_ROUTES.tenantStatus, { id }),
-      // `pending` is derived from whether anyone has accepted an invitation, so
-      // it is not a state an operator can move a tenant to. The screen never
-      // offers it — see TENANT_ACTION_RESULT — and the schema rejects it.
-      { status },
-      tenantDetailSchema
     );
   }
 

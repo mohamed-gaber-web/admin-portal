@@ -55,14 +55,6 @@ export const API_ROUTES = {
    * would make the screen able to show exactly one row.
    */
   tenant: "/tenants/:id",
-  /**
-   * A tenant lifecycle transition — suspend, reactivate, archive, restore.
-   *
-   * Claims the `tenant.soft_deleted` and `tenant.restored` audit actions that
-   * `softDeleteTenant()` and `restoreTenant()` have been writing without a
-   * route since US-010.
-   */
-  tenantStatus: "/tenants/:id/status",
   /** One tenant's recent audit entries, for the detail screen's feed. */
   tenantActivity: "/tenants/:id/activity",
   /**

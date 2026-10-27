@@ -12,8 +12,7 @@ import {
   type ActivityEntry,
   type Async,
   type TenantDetail,
-  type TenantStatus,
-  type TenantSummary
+  type TenantStatus
 } from "@core/models";
 import {
   BadgeComponent,
@@ -29,7 +28,6 @@ import {
 import { ActivityListComponent } from "@shared/components/activity-list.component";
 import { TenantContractComponent } from "@features/platform/components/tenant-contract.component";
 import { TenantEnvironmentsComponent } from "./components/tenant-environments.component";
-import { TenantLifecycleComponent } from "./components/tenant-lifecycle.component";
 import { TenantsService } from "./tenants.service";
 
 /**
@@ -62,7 +60,6 @@ import { TenantsService } from "./tenants.service";
     SkeletonComponent,
     TenantContractComponent,
     TenantEnvironmentsComponent,
-    TenantLifecycleComponent
   ],
   template: `
     <a
@@ -219,19 +216,6 @@ import { TenantsService } from "./tenants.service";
               <div class="space-y-6">
                 <ui-card>
                   <ui-card-header
-                    [title]="t('lifecycle.title')"
-                    [description]="t('lifecycle.subtitle')"
-                  />
-                  <div class="mt-6">
-                    <app-tenant-lifecycle
-                      [tenant]="tenant"
-                      (changed)="onStatusChanged($event)"
-                    />
-                  </div>
-                </ui-card>
-
-                <ui-card>
-                  <ui-card-header
                     [title]="t('tenantDetail.activity')"
                     [description]="t('tenantDetail.activitySubtitle')"
                   />
@@ -330,26 +314,10 @@ export class TenantDetailPage {
 
     // Separate call, and deliberately not awaited with the tenant: the audit
     // feed is supplementary, so a slow or empty one should not hold up the
-    // identity and lifecycle controls that the page exists for.
+    // identity and environments that the page exists for.
     this.tenants.activity(this.id()).subscribe({
       next: (entries) => this.activity.set(entries),
       error: () => this.activity.set([])
-    });
-  }
-
-  /**
-   * Applies a lifecycle change locally rather than refetching.
-   *
-   * The service already returned the updated row, so a second round trip would
-   * only reintroduce a loading flash on a screen the user is looking at.
-   */
-  protected onStatusChanged(updated: TenantSummary): void {
-    const current = this.state().data;
-    if (!current) return;
-    this.state.set({
-      status: "success",
-      data: { ...current, ...updated },
-      error: null
     });
   }
 }

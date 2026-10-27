@@ -73,7 +73,7 @@ import {
         <p class="text-sm text-foreground-muted">{{ subtitle() }}</p>
       </div>
 
-      <a uiButton routerLink="/tenants" variant="outline" size="md">
+      <a uiButton routerLink="/platform/tenants" variant="outline" size="md">
         <ui-icon name="building" [size]="16" />
         {{ t("dashboard.manageTenants") }}
       </a>

@@ -356,12 +356,9 @@ export const en = {
   "tenantDetail.activityEmpty": "Nothing recorded for this tenant yet.",
 
   // ── Tenant lifecycle ─────────────────────────────────────────────────────
-  "lifecycle.title": "Lifecycle",
-  "lifecycle.subtitle": "Suspend, remove or restore this workspace.",
   "lifecycle.suspend": "Suspend",
   "lifecycle.reactivate": "Reactivate",
   "lifecycle.archive": "Remove",
-  "lifecycle.restore": "Restore",
 
   "lifecycle.suspendTitle": "Suspend this tenant?",
   "lifecycle.suspendBody":
@@ -373,16 +370,12 @@ export const en = {
     "This removes the tenant from every screen. Check you have the right one.",
   "lifecycle.reactivateTitle": "Reactivate this tenant?",
   "lifecycle.reactivateBody": "People in {name} will be able to sign in again.",
-  "lifecycle.restoreTitle": "Restore this tenant?",
-  "lifecycle.restoreBody": "{name} becomes visible and usable again.",
 
   "lifecycle.suspended": "{name} suspended",
   "lifecycle.reactivated": "{name} reactivated",
   "lifecycle.archived": "{name} archived",
-  "lifecycle.restored": "{name} restored",
   "lifecycle.failed": "That change could not be applied.",
   // Named so an operator can search the audit log for exactly this entry.
-  "lifecycle.auditNote": "Recorded in the audit log as {action}.",
 
   // ── Create tenant ────────────────────────────────────────────────────────
   "createTenant.title": "New tenant",

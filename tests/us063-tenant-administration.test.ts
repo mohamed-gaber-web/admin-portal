@@ -111,102 +111,58 @@ describe("US-063 AC1 — a tenant detail screen, reachable from the list", () =>
   });
 });
 
-describe("US-063 AC2 — lifecycle actions", () => {
-  it("derives the available actions from status, not from template branches", () => {
-    const model = read("core/models/tenant.model.ts");
-    expect(model).toContain("TENANT_ACTIONS_BY_STATUS");
+describe("US-063 AC2 — lifecycle actions belong to the operator", () => {
+  /*
+   * The original story put suspend/reactivate/archive/restore on the tenant's
+   * own detail screen, backed by a tenant-scoped PATCH /tenants/:id/status that
+   * checked no permission. Any signed-in member could switch their whole
+   * workspace off. Lifecycle is now an operator decision only, made from
+   * All tenants through PATCH /platform/tenants/:id/status.
+   */
+  it("declares no tenant-scoped lifecycle route", () => {
+    const tenantWrites = DECLARED_ROUTES.filter(
+      (route) => route.path.startsWith("/tenants/") && route.method !== "GET"
+    );
+    expect(tenantWrites).toEqual([]);
 
-    const component = read("features/tenants/components/tenant-lifecycle.component.ts");
-    expect(component).toContain("TENANT_ACTIONS_BY_STATUS[this.tenant().status]");
+    const platform = DECLARED_ROUTES.find(
+      (route) => route.method === "PATCH" && route.path === "/platform/tenants/:id/status"
+    );
+    expect(platform?.visibility).toBe("platform");
   });
 
-  it("makes the illegal transitions unrepresentable", async () => {
-    const {
-      TENANT_ACTIONS_BY_STATUS,
-      TENANT_ACTION_RESULT
-    } = await import("../apps/portal/src/app/core/models/tenant.model");
-
-    // An archived tenant is soft-deleted: restoring is the only way back.
-    expect(TENANT_ACTIONS_BY_STATUS.archived).toEqual(["restore"]);
-    // Nothing offers a transition to the state it is already in.
-    for (const [status, actions] of Object.entries(TENANT_ACTIONS_BY_STATUS)) {
-      for (const action of actions) {
-        expect(TENANT_ACTION_RESULT[action]).not.toBe(status);
-      }
+  it("keeps the lifecycle audit actions claimed by the platform route", () => {
+    const held = NON_ROUTE_AUDIT_ACTIONS.map((entry) => entry.action);
+    const platform =
+      DECLARED_ROUTES.find((route) => route.path === "/platform/tenants/:id/status")?.audits ??
+      [];
+    for (const action of [
+      "tenant.soft_deleted",
+      "tenant.restored",
+      "tenant.suspended",
+      "tenant.reactivated"
+    ]) {
+      expect(held).not.toContain(action);
+      expect(platform).toContain(action);
     }
   });
 
-  it("requires typing the slug before archiving, and only before archiving", async () => {
-    const { TENANT_ACTIONS_NEEDING_PHRASE } = await import(
-      "../apps/portal/src/app/core/models/tenant.model"
-    );
-    // Friction everywhere is friction nowhere — it stops being read.
-    expect(TENANT_ACTIONS_NEEDING_PHRASE).toEqual(["archive"]);
+  it("offers no lifecycle controls on the tenant's own screens", () => {
+    const page = read("features/tenants/tenant-detail.page.ts");
+    expect(page).not.toContain("lifecycle");
 
+    const service = read("features/tenants/tenants.service.ts");
+    expect(service).not.toMatch(/setStatus|patchValidated/);
+    // No fixture left to fall back to either.
+    expect(service).not.toContain("mockResponse");
+  });
+
+  it("keeps typed-slug confirmation available for destructive actions", () => {
     const dialog = read("shared/ui/confirm-dialog.component.ts");
     expect(dialog).toContain("confirmPhrase");
     // Exact match: a slug is lowercase by schema rule, so a loose comparison
     // would accept something the system never stores.
     expect(dialog).toMatch(/this\.typed\(\) === phrase/);
-  });
-
-  it("claims the audit actions the route manifest was holding", () => {
-    const component = read("features/tenants/components/tenant-lifecycle.component.ts");
-    for (const action of ["tenant.soft_deleted", "tenant.restored"]) {
-      expect(component).toContain(action);
-    }
-
-    // Now claimed by PATCH /tenants/:id/status, so they must no longer be held
-    // as route-less. The US-015 guard is bidirectional and would fail on the
-    // double claim, but asserting it here says why the entries were removed.
-    const held = NON_ROUTE_AUDIT_ACTIONS.map((entry) => entry.action);
-    expect(held).not.toContain("tenant.soft_deleted");
-    expect(held).not.toContain("tenant.restored");
-
-    const lifecycle = DECLARED_ROUTES.find(
-      (route) => route.path === "/tenants/:id/status"
-    );
-    expect(lifecycle?.audits).toContain("tenant.soft_deleted");
-    expect(lifecycle?.audits).toContain("tenant.restored");
-  });
-
-  it("names only audit actions the lifecycle route actually declares", () => {
-    // Showing a name nothing records sends an operator searching the log for
-    // an entry that will never be there — so every name offered on screen must
-    // be one the route claims, and the US-015 guard holds those to the source.
-    const component = read("features/tenants/components/tenant-lifecycle.component.ts");
-    const declared =
-      DECLARED_ROUTES.find((route) => route.path === "/tenants/:id/status")?.audits ?? [];
-
-    const named = [...component.matchAll(/(?:suspend|reactivate|archive|restore):\s*"([^"]+)"/g)]
-      .map((match) => match[1])
-      .filter((action) => action.startsWith("tenant."));
-    expect(named.length).toBe(4);
-
-    for (const action of named) {
-      expect(declared, `${action} is shown but not declared`).toContain(action);
-    }
-  });
-
-  it("sends the transition to the API rather than mutating a fixture", () => {
-    const lifecycleRoutes = DECLARED_ROUTES.filter(
-      (route) => route.path.startsWith("/tenants/") && route.method !== "GET"
-    );
-    expect(lifecycleRoutes.map((route) => `${route.method} ${route.path}`)).toEqual([
-      "PATCH /tenants/:id/status"
-    ]);
-
-    const service = read("features/tenants/tenants.service.ts");
-    expect(service).toMatch(/setStatus[\s\S]{0,400}API_ROUTES\.tenantStatus/);
-    // No fixture left to fall back to — a half-wired service that silently
-    // mutates local state on failure is the outcome worth ruling out.
-    expect(service).not.toContain("mockResponse");
-  });
-
-  it("sends the target state rather than the verb", () => {
-    // Idempotence: a retried archive must not become a second transition.
-    const service = read("features/tenants/tenants.service.ts");
-    expect(service).toMatch(/\{ status \}/);
   });
 });
 
@@ -265,16 +221,16 @@ describe("US-063 AC5 — localisation definition of done", () => {
       /class="[^"]*(?<!\w)(?:pl-\d|pr-\d|ml-\d|mr-\d|left-\d|right-\d|text-left|text-right)/;
 
     const added = sources().filter((path) =>
-      /(tenant-detail\.page|tenant-lifecycle\.component|tenant-environments\.component|confirm-dialog\.component)\.ts$/.test(
+      /(tenant-detail\.page|tenant-environments\.component|confirm-dialog\.component)\.ts$/.test(
         path
       )
     );
-    // Five, not four: `platform-tenant-detail.page.ts` matches the same pattern
+    // Four, not three: `platform-tenant-detail.page.ts` matches the same pattern
     // and is deliberately left in scope. It is the operator's twin of the tenant
     // detail screen, so holding it to a weaker localisation rule than the screen
     // it mirrors would be exactly the wrong exemption. The count is here to stop
     // the filter silently matching nothing, so it moves when the set really does.
-    expect(added.length).toBe(5);
+    expect(added.length).toBe(4);
 
     for (const file of added) {
       const source = readFileSync(file, "utf8");

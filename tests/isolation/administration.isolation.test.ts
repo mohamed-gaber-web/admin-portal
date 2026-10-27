@@ -144,23 +144,6 @@ describe.skipIf(!hasDb)("US-013 - administration cross-tenant isolation", () => 
     });
   });
 
-  describe(coversRoute("PATCH /tenants/:id/status"), () => {
-    it("cannot suspend another tenant", async () => {
-      const res = await request(
-        "PATCH",
-        `/tenants/${tenantB.tenantId}/status`,
-        tenantA.accessToken,
-        { status: "suspended" }
-      );
-      expect(res.status).toBe(404);
-
-      // The write must not have landed — read it back as its owner, which is
-      // the only way to tell "refused" from "refused and applied anyway".
-      const after = await get(`/tenants/${tenantB.tenantId}`, tenantB.accessToken);
-      expect(((await after.json()) as { status: string }).status).not.toBe("suspended");
-    });
-  });
-
   describe(coversRoute("GET /users"), () => {
     it("returns only the caller's own tenant's users", async () => {
       const res = await get("/users", tenantA.accessToken);

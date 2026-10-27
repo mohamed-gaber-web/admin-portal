@@ -343,12 +343,9 @@ export const ar: Messages = {
   "tenantDetail.activityEmpty": "لم يُسجَّل شيء لهذا المستأجر بعد.",
 
   // ── Tenant lifecycle ─────────────────────────────────────────────────────
-  "lifecycle.title": "دورة الحياة",
-  "lifecycle.subtitle": "إيقاف مساحة العمل هذه أو إزالتها أو استعادتها.",
   "lifecycle.suspend": "إيقاف",
   "lifecycle.reactivate": "إعادة التفعيل",
   "lifecycle.archive": "إزالة",
-  "lifecycle.restore": "استعادة",
 
   "lifecycle.suspendTitle": "إيقاف هذا المستأجر؟",
   "lifecycle.suspendBody":
@@ -359,15 +356,11 @@ export const ar: Messages = {
   "lifecycle.archiveWarning": "هذا يزيل المستأجر من كل الشاشات. تأكّد أنه الصحيح.",
   "lifecycle.reactivateTitle": "إعادة تفعيل هذا المستأجر؟",
   "lifecycle.reactivateBody": "سيتمكّن أفراد {name} من تسجيل الدخول مرة أخرى.",
-  "lifecycle.restoreTitle": "استعادة هذا المستأجر؟",
-  "lifecycle.restoreBody": "سيعود {name} ظاهرًا وقابلًا للاستخدام.",
 
   "lifecycle.suspended": "تم إيقاف {name}",
   "lifecycle.reactivated": "تمت إعادة تفعيل {name}",
   "lifecycle.archived": "تمت أرشفة {name}",
-  "lifecycle.restored": "تمت استعادة {name}",
   "lifecycle.failed": "تعذّر تطبيق هذا التغيير.",
-  "lifecycle.auditNote": "يُسجَّل في سجل التدقيق باسم {action}.",
 
   // ── Create tenant ────────────────────────────────────────────────────────
   "createTenant.title": "مستأجر جديد",

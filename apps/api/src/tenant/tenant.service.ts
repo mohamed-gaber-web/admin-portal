@@ -4,7 +4,6 @@ import {
   listAuditEntriesForTenant,
   listTenants,
   provisionTenantOnClient,
-  setTenantStatus,
   TenantAlreadyExistsError,
   AdminEmailAlreadyExistsError,
   withoutTenantScope,
@@ -13,7 +12,6 @@ import {
   type AuditEntry,
   type TenantPageRequest,
   type TenantDetail as TenantDetailRecord,
-  type TenantStatusTarget,
   type TenantSummary as TenantSummaryRecord
 } from "@growpath/db";
 import {
@@ -142,24 +140,6 @@ export class TenantService {
       const entries = await listAuditEntriesForTenant(client, id);
       return entries.map(toActivity);
     });
-  }
-
-  /**
-   * Applies a lifecycle transition to the caller's own tenant.
-   *
-   * Another tenant's id is invisible inside the scoped session, so it lands as
-   * a 404 rather than a 403 — and, more to the point, the UPDATE it would have
-   * run matches no row.
-   */
-  async setStatus(
-    id: string,
-    status: TenantStatusTarget,
-    actor: AuditActor
-  ): Promise<TenantDetail | null> {
-    const record = await withRequestTenantScope(this.pool, (client) =>
-      setTenantStatus(client, id, status, actor)
-    );
-    return record ? toDetail(record) : null;
   }
 
   async create(input: CreateTenantInput, actor: AuditActor): Promise<ProvisionedTenant> {

@@ -47,9 +47,11 @@ export interface DeclaredRoute {
 export const NON_ROUTE_AUDIT_ACTIONS: { action: string; note: string }[] = [
   // `tenant.soft_deleted` and `tenant.restored` used to be held here, written by
   // softDeleteTenant() and restoreTenant() since US-010 with no endpoint that
-  // reached them. PATCH /tenants/:id/status now does, and claims them below —
-  // the guard is bidirectional, so leaving them here as well would fail on the
-  // double claim.
+  // reached them. PATCH /platform/tenants/:id/status now does, and claims them
+  // below — the guard is bidirectional, so leaving them here as well would fail
+  // on the double claim. (A tenant-scoped PATCH /tenants/:id/status used to
+  // claim them too; it was removed because a tenant must not be able to switch
+  // its own workspace off.)
 ];
 
 export const DECLARED_ROUTES: DeclaredRoute[] = [
@@ -181,21 +183,6 @@ export const DECLARED_ROUTES: DeclaredRoute[] = [
     path: "/tenants/:id/activity",
     visibility: "tenant-scoped",
     note: "The caller's own tenant's recent audit entries, for the detail screen's feed (US-063). `audit_log` carries its own isolation policy, so another tenant's id yields no rows — and the tenant is checked first so it answers 404 rather than an empty feed, which would confirm the id exists."
-  },
-  {
-    method: "PATCH",
-    path: "/tenants/:id/status",
-    visibility: "tenant-scoped",
-    note: "A lifecycle transition on the caller's own tenant — suspend, reactivate, archive, restore (US-063). Takes the state to reach rather than the verb to apply, so a retried request is a no-op instead of a second transition. Another tenant's id matches no row: the RLS policy fences the UPDATE as well as the read.",
-    // Four, because four different things can happen, and which one did is the
-    // question the log exists to answer. Archiving is the soft delete, so it
-    // claims the two actions US-010 had been writing with no route to reach them.
-    audits: [
-      "tenant.soft_deleted",
-      "tenant.restored",
-      "tenant.suspended",
-      "tenant.reactivated"
-    ]
   },
   {
     method: "GET",
@@ -451,10 +438,9 @@ export const DECLARED_ROUTES: DeclaredRoute[] = [
     method: "PATCH",
     path: "/platform/tenants/:id/status",
     visibility: "platform",
-    note: "Suspend, reactivate, archive or restore any tenant. Takes the state to reach rather than the verb to apply, so a retried request is a no-op — the same contract as the tenant-scoped route, because the same button should not mean different things to an operator and an administrator.",
-    // The same four actions the tenant-scoped route claims. Both write them,
-    // through the same functions; the guard checks that every claimed action
-    // exists in the source, not that only one route may claim it.
+    note: "Suspend, reactivate, archive or restore any tenant. Takes the state to reach rather than the verb to apply, so a retried request is a no-op. The only lifecycle route: a tenant-scoped twin was removed, because a tenant must not be able to switch its own workspace off.",
+    // Four, because four different things can happen, and which one did is the
+    // question the log exists to answer.
     audits: [
       "tenant.soft_deleted",
       "tenant.restored",

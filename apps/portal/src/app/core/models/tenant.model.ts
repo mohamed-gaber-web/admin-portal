@@ -134,38 +134,3 @@ export const ENVIRONMENT_KINDS: readonly EnvironmentKind[] = [
   "production",
   "sandbox"
 ];
-
-/**
- * What can be done to a tenant in each state.
- *
- * Declared as data rather than as branches in a template, so an unreachable
- * combination — reactivating an archived tenant without restoring it first — is
- * impossible to render rather than merely unlikely.
- */
-export type TenantAction = "suspend" | "reactivate" | "archive" | "restore";
-
-export const TENANT_ACTIONS_BY_STATUS: Record<TenantStatus, TenantAction[]> = {
-  active: ["suspend", "archive"],
-  pending: ["archive"],
-  suspended: ["reactivate", "archive"],
-  // An archived tenant is soft-deleted. Restoring is the only way back, and
-  // suspending something already gone is not a state worth having.
-  archived: ["restore"]
-};
-
-/** The status each action lands the tenant in. */
-export const TENANT_ACTION_RESULT: Record<TenantAction, TenantStatus> = {
-  suspend: "suspended",
-  reactivate: "active",
-  archive: "archived",
-  restore: "active"
-};
-
-/**
- * Actions that require typing the slug to confirm.
- *
- * Only the soft delete. Suspension is disruptive but reversible in a click;
- * archiving is the one that hides a tenant from every other screen, and it is
- * the one people do to the wrong row.
- */
-export const TENANT_ACTIONS_NEEDING_PHRASE: readonly TenantAction[] = ["archive"];

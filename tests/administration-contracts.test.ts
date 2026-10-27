@@ -205,21 +205,28 @@ describe.skipIf(!hasDb)("administration responses match their contracts", () => 
     expect(provisioned?.severity).toBe("info");
   });
 
-  it("PATCH /tenants/:id/status round-trips every transition", async () => {
-    const patch = (status: string) =>
-      parsed(`/tenants/${tenant.tenantId}/status`, tenantDetailSchema, {
+  it("does not let a tenant change its own lifecycle", async () => {
+    // Suspending or archiving a workspace is the operator's decision, made at
+    // PATCH /platform/tenants/:id/status. The tenant-scoped twin let any signed-in
+    // member — a viewer included — switch off their whole organisation and lock
+    // every colleague out with no way back. Even the tenant's own administrator,
+    // on their own tenant, must find nothing here.
+    for (const status of ["suspended", "archived"]) {
+      const res = await fetch(`${api.baseUrl}/tenants/${tenant.tenantId}/status`, {
         method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${tenant.accessToken}`
+        },
         body: JSON.stringify({ status })
       });
+      expect(res.status).toBe(404);
+    }
 
-    expect((await patch("suspended")).status).toBe("suspended");
-    // Idempotent: asking again is a no-op rather than a second transition.
-    expect((await patch("suspended")).status).toBe("suspended");
-    expect((await patch("active")).status).toBe("active");
-    expect((await patch("archived")).status).toBe("archived");
-    // Restoring an archived tenant returns it to active, not to whatever it
-    // was before — the screen offers "restore" and means it.
-    expect((await patch("active")).status).toBe("active");
+    // Refused and not applied anyway: the tenant is still running.
+    const after = await parsed(`/tenants/${tenant.tenantId}`, tenantDetailSchema);
+    expect(after.status).not.toBe("suspended");
+    expect(after.status).not.toBe("archived");
   });
 
   it("GET /users and GET /users/:id match their contracts", async () => {
