@@ -81,6 +81,24 @@ export const platformAdminCreatedSchema = z
 
 export type PlatformAdminCreated = z.infer<typeof platformAdminCreatedSchema>;
 
+/**
+ * A reset link an operator issued for somebody else's account.
+ *
+ * `token` appears here once and never again — only its digest is stored — so
+ * the screen has to surface it at that moment, the same contract as an
+ * invitation. The portal turns it into `/reset-password?token=…`.
+ */
+export const operatorPasswordResetSchema = z
+  .object({
+    userId: z.string().uuid(),
+    email: z.string(),
+    token: z.string(),
+    expiresAt: z.string()
+  })
+  .strict();
+
+export type OperatorPasswordReset = z.infer<typeof operatorPasswordResetSchema>;
+
 /** One operator, as the list renders them. */
 export const platformAdminSchema = z
   .object({

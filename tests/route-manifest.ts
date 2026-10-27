@@ -226,6 +226,15 @@ export const DECLARED_ROUTES: DeclaredRoute[] = [
     audits: ["user.suspended", "user.reactivated"]
   },
   {
+    method: "POST",
+    path: "/platform/users/:id/password-reset",
+    visibility: "platform",
+    note: "Issues a one-time password reset link for any user, in any tenant, returned to the operator once. The operator never sees or sets the password: the account's owner chooses it by redeeming the link on POST /auth/reset-password, which revokes their sessions as the self-service path does. Refused with a reason for invited, removed and archived-tenant accounts, since none of them can use a reset.",
+    // Written into the target tenant's log naming the operator. Redeeming the
+    // link writes `password.reset` separately, on the auth route.
+    audits: ["password.reset_issued"]
+  },
+  {
     method: "PUT",
     path: "/users/:id/roles",
     visibility: "tenant-scoped",

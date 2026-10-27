@@ -202,6 +202,96 @@ describe.skipIf(!hasDb)("platform administration", () => {
   });
 
   describe("what the operator can change", () => {
+    it("issues a reset link for a user in another tenant, which its owner redeems", async () => {
+      const issued = await request(
+        "POST",
+        `/platform/users/${tenantB.userId}/password-reset`,
+        operator.accessToken
+      );
+      expect(issued.status).toBe(201);
+      const link = (await issued.json()) as { userId: string; email: string; token: string };
+      expect(link.userId).toBe(tenantB.userId);
+      expect(link.email).toBe(tenantB.email);
+
+      // Reissuing burns the first link, so a link sent to the wrong place can
+      // be taken back by issuing another.
+      const second = await request(
+        "POST",
+        `/platform/users/${tenantB.userId}/password-reset`,
+        operator.accessToken
+      );
+      expect(second.status).toBe(201);
+      const fresh = (await second.json()) as { token: string };
+
+      const stale = await request("POST", API_ROUTES.completePasswordReset, undefined, {
+        token: link.token,
+        password: "chosen-by-the-owner-1"
+      });
+      expect(stale.status).toBe(400);
+
+      const redeemed = await request("POST", API_ROUTES.completePasswordReset, undefined, {
+        token: fresh.token,
+        password: "chosen-by-the-owner-1"
+      });
+      expect(redeemed.status).toBe(200);
+
+      const signIn = await request("POST", API_ROUTES.login, undefined, {
+        email: tenantB.email,
+        password: "chosen-by-the-owner-1"
+      });
+      expect(signIn.status).toBe(200);
+
+      // Into the target tenant's log, naming the operator, and never the token.
+      const audit = await pool.query<{ actor_label: string }>(
+        `SELECT * FROM audit_log
+          WHERE tenant_id = $1 AND action = 'password.reset_issued'`,
+        [tenantB.tenantId]
+      );
+      expect(audit.rows).toHaveLength(2);
+      expect(audit.rows[0].actor_label).toBe(operator.email);
+      expect(JSON.stringify(audit.rows)).not.toContain(fresh.token);
+    });
+
+    it("refuses a reset for an unknown id with 404 and an invited account with 400", async () => {
+      const unknown = await request(
+        "POST",
+        "/platform/users/00000000-0000-4000-8000-000000000000/password-reset",
+        operator.accessToken
+      );
+      expect(unknown.status).toBe(404);
+
+      const malformed = await request(
+        "POST",
+        "/platform/users/not-a-uuid/password-reset",
+        operator.accessToken
+      );
+      expect(malformed.status).toBe(404);
+
+      // An invited account has no password to replace: the invitation is the
+      // link it needs.
+      const invited = await pool.query<{ id: string }>(
+        `INSERT INTO "user" (tenant_id, email, status)
+         VALUES ($1, 'never-accepted@platform-reset.test', 'invited')
+         RETURNING id`,
+        [tenantA.tenantId]
+      );
+      const refused = await request(
+        "POST",
+        `/platform/users/${invited.rows[0].id}/password-reset`,
+        operator.accessToken
+      );
+      expect(refused.status).toBe(400);
+    });
+
+    it("refuses a tenant administrator asking for a reset link", async () => {
+      const res = await request(
+        "POST",
+        `/platform/users/${tenantB.userId}/password-reset`,
+        tenantA.accessToken
+      );
+      expect(res.status).toBe(403);
+    });
+
     it("suspends a tenant it does not belong to, and records who did it", async () => {
       const res = await request(
         "PATCH",

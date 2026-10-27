@@ -37,6 +37,7 @@ import {
   type CreatePlatformAdminInput,
   type InvitePlatformUserInput,
   type IssuedUserInvitation,
+  type OperatorPasswordReset,
   type Page,
   type TenantQuery,
   type Plan,
@@ -64,6 +65,7 @@ import {
   ContractPeriodInvalidError,
   EnvironmentNotInTenantError,
   EmailAlreadyInUseError,
+  PasswordResetUnavailableError,
   PlatformTenantMissingError,
   SeatLimitReachedError,
   UnknownRoleError,
@@ -514,6 +516,40 @@ export class PlatformController {
       throw new NotFoundException({ message: "User not found." });
     }
     return user;
+  }
+
+  /**
+   * Issues a one-time password reset link for any user.
+   *
+   * 201 because a link now exists that did not before. The token is in the
+   * response once — only its digest is stored — and the operator passes the link
+   * on; the account's owner chooses the password, so no operator ever knows one.
+   */
+  @Post(API_ROUTES.platformUserPasswordReset)
+  @HttpCode(201)
+  @RequiresPlatformPermission("platform.user.write")
+  async issuePasswordReset(
+    @Param("id") id: string,
+    @Req() request: Request,
+    @Ip() ip: string
+  ): Promise<OperatorPasswordReset> {
+    let issued: OperatorPasswordReset | null;
+    try {
+      issued = await this.platform.issuePasswordReset(id, actorFrom(request, ip));
+    } catch (err) {
+      if (err instanceof PasswordResetUnavailableError) {
+        // 400 with the remedy: reissue the invitation, reactivate, or restore
+        // the tenant. The caller is an operator who can already list every
+        // account, so naming the reason discloses nothing they lack.
+        throw new BadRequestException({ message: err.message });
+      }
+      throw err;
+    }
+
+    if (!issued) {
+      throw new NotFoundException({ message: "User not found." });
+    }
+    return issued;
   }
 
   // ── The operator tier's own administration ───────────────────────────────

@@ -318,6 +318,16 @@ export const API_ROUTES = {
   platformUserInvitations: "/platform/users/invitations",
   platformUser: "/platform/users/:id",
   platformUserStatus: "/platform/users/:id/status",
+  /**
+   * Issues a one-time password reset link for any user, in any tenant.
+   *
+   * The operator receives a link, never a password: the person it belongs to
+   * chooses their own, on the same `/reset-password` screen the self-service
+   * path uses. Separate from `requestPasswordReset` because that one must answer
+   * identically for every address, and this one names a user by id and says
+   * plainly why it refused.
+   */
+  platformUserPasswordReset: "/platform/users/:id/password-reset",
 
   /**
    * The operators themselves.

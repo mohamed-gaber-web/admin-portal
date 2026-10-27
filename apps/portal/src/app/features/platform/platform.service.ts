@@ -5,6 +5,7 @@ import {
   activityEntrySchema,
   catalogPermissionListSchema,
   issuedUserInvitationSchema,
+  operatorPasswordResetSchema,
   platformAdminCreatedSchema,
   platformAdminListSchema,
   planListSchema,
@@ -21,6 +22,7 @@ import {
   type InvitePlatformUserInput,
   type IssuedUserInvitation,
   type ModuleKey,
+  type OperatorPasswordReset,
   type PlatformAdmin,
   type PlatformAdminCreated,
   type ProvisionedTenant,
@@ -175,6 +177,18 @@ export class PlatformService {
    * locks the tier out with no screen that could undo it — so the caller can
    * surface that message rather than guessing at it.
    */
+  /**
+   * Issues a one-time reset link for a user. The token is in this response and
+   * nowhere else, so the caller must show it before discarding it.
+   */
+  issuePasswordReset(id: string): Observable<OperatorPasswordReset> {
+    return this.api.postValidated(
+      pathFor(API_ROUTES.platformUserPasswordReset, { id }),
+      {},
+      operatorPasswordResetSchema
+    );
+  }
+
   setUserStatus(id: string, status: UserStatus): Observable<UserDetail> {
     return this.api.patchValidated(
       pathFor(API_ROUTES.platformUserStatus, { id }),

@@ -4,7 +4,7 @@ import { describeError } from "@core/http/api-error";
 import { injectT } from "@core/i18n/i18n.service";
 import { USER_STATUS_LABEL_KEYS } from "@core/i18n/label-keys";
 import { ToastService } from "@core/notifications/toast.service";
-import { MAX_PAGE_SIZE } from "@growpath/contracts";
+import { MAX_PAGE_SIZE, type OperatorPasswordReset } from "@growpath/contracts";
 import {
   DEFAULT_PAGE_SIZE,
   USER_STATUSES,
@@ -37,6 +37,7 @@ import {
 import { RelativeTimePipe } from "@shared/pipes/relative-time.pipe";
 import { PageHeaderComponent } from "../../layout/page-header.component";
 import { InviteTenantUserDialogComponent } from "./components/invite-tenant-user-dialog.component";
+import { ResetLinkDialogComponent } from "./components/reset-link-dialog.component";
 import { PlatformService } from "./platform.service";
 
 /**
@@ -62,6 +63,7 @@ import { PlatformService } from "./platform.service";
     RelativeTimePipe,
     AvatarComponent,
     InviteTenantUserDialogComponent,
+    ResetLinkDialogComponent,
     BadgeComponent,
     ButtonComponent,
     CardComponent,
@@ -221,6 +223,16 @@ import { PlatformService } from "./platform.service";
                           <ui-icon name="more" [size]="16" />
                         </button>
                         <div dropdownMenu>
+                          <!-- Active accounts only. An invited one has no
+                               password to replace, and a removed one would be
+                               quietly reactivated by redeeming the link — the
+                               API refuses both with the reason. -->
+                          @if (user.status === "active" && canWrite()) {
+                            <button uiMenuItem type="button" (click)="askReset(user)">
+                              <ui-icon name="key" [size]="15" />
+                              {{ t("platformUsers.resetPassword") }}
+                            </button>
+                          }
                           @if (user.status === "suspended") {
                             <button uiMenuItem type="button" (click)="ask(user, 'active')">
                               <ui-icon name="refresh" [size]="15" />
@@ -277,6 +289,26 @@ import { PlatformService } from "./platform.service";
       />
     }
 
+    @if (resetPending(); as user) {
+      <ui-confirm-dialog
+        [title]="t('platformUsers.resetConfirmTitle', { name: user.name })"
+        [description]="t('platformUsers.resetConfirmBody')"
+        [confirmLabel]="t('platformUsers.resetConfirm')"
+        tone="primary"
+        [busy]="busy()"
+        (confirmed)="issueReset(user)"
+        (cancelled)="resetPending.set(null)"
+      />
+    }
+
+    @if (resetIssued(); as issued) {
+      <app-reset-link-dialog
+        [result]="issued.result"
+        [name]="issued.name"
+        (closed)="resetIssued.set(null)"
+      />
+    }
+
     @if (pending(); as request) {
       <ui-confirm-dialog
         [title]="t('platformUsers.confirmTitle', { name: request.user.name })"
@@ -317,6 +349,8 @@ export class AllUsersPage {
    * influence.
    */
   protected readonly canInvite = () => this.session.hasPermission("platform.user.write");
+  /** Same key as inviting; issuing a reset link is a write to the account. */
+  protected readonly canWrite = this.canInvite;
 
   protected readonly inviteOpen = signal(false);
 
@@ -341,6 +375,17 @@ export class AllUsersPage {
     user: UserSummary;
     status: "active" | "suspended";
   } | null>(null);
+
+  /** The account a reset link is being asked for, awaiting confirmation. */
+  protected readonly resetPending = signal<UserSummary | null>(null);
+  /**
+   * The link just issued. Held only while its dialog is open: the token exists
+   * nowhere else, and keeping it after the dialog closes would be keeping a
+   * credential in memory for no reader.
+   */
+  protected readonly resetIssued = signal<{ result: OperatorPasswordReset; name: string } | null>(
+    null
+  );
 
   protected readonly search = signal("");
   /**
@@ -441,6 +486,29 @@ export class AllUsersPage {
         // instead, and a fixed string would throw that away.
         this.toasts.error(
           this.t("platformUsers.updateFailed"),
+          describeError(error, this.t, "users.loadError")
+        );
+      }
+    });
+  }
+
+  protected askReset(user: UserSummary): void {
+    this.resetPending.set(user);
+  }
+
+  protected issueReset(user: UserSummary): void {
+    this.busy.set(true);
+    this.platform.issuePasswordReset(user.id).subscribe({
+      next: (result) => {
+        this.busy.set(false);
+        this.resetPending.set(null);
+        this.resetIssued.set({ result, name: user.name });
+      },
+      error: (error: unknown) => {
+        this.busy.set(false);
+        // The API's reason is shown: each refusal names what to do instead.
+        this.toasts.error(
+          this.t("platformUsers.resetFailed"),
           describeError(error, this.t, "users.loadError")
         );
       }

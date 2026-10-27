@@ -14,6 +14,7 @@ import {
   listTenants,
   listUsers,
   issueInvitation,
+  issuePasswordResetForUser,
   setUserName,
   setUserRoles,
   setTenantModules,
@@ -49,6 +50,7 @@ import {
   type CreatePlatformAdminInput,
   type InvitePlatformUserInput,
   type IssuedUserInvitation,
+  type OperatorPasswordReset,
   type Page,
   type Plan,
   type ReissuedInvitation,
@@ -391,6 +393,38 @@ export class PlatformService {
       (client) => setUserStatus(client, id, status, actor)
     );
     return record ? toUserDetail(record) : null;
+  }
+
+  /**
+   * Issues a one-time reset link for any user, in any tenant.
+   *
+   * Not refused for the caller's own account, unlike suspension: an operator
+   * resetting their own password locks nobody out, since redeeming the link is
+   * what sets the new one.
+   *
+   * Null for an unknown id; `PasswordResetUnavailableError` escapes to the
+   * controller for an account that exists but cannot use a reset.
+   */
+  async issuePasswordReset(
+    id: string,
+    actor: AuditActor
+  ): Promise<OperatorPasswordReset | null> {
+    const issued = await withoutTenantScope(
+      this.pool,
+      {
+        reason:
+          "Platform administration: issuing a password reset link for a user in a tenant the operator is not a member of."
+      },
+      (client) => issuePasswordResetForUser(client, { userId: id, actor })
+    );
+    if (!issued) return null;
+
+    return {
+      userId: issued.userId,
+      email: issued.email,
+      token: issued.token,
+      expiresAt: issued.expiresAt.toISOString()
+    };
   }
 
   // ── Commercial administration (US-072) ───────────────────────────────────

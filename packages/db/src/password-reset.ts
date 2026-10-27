@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
-import { recordAuditEntry } from "./audit";
+import { recordAuditEntry, type AuditActor } from "./audit";
 import { recordAuthEvent } from "./authentication";
 import { hashPassword, MIN_PASSWORD_LENGTH } from "./invitations";
+import { isUuid } from "./tenant-administration";
 import type { Queryable } from "./tenancy";
 
 /**
@@ -310,5 +311,144 @@ export async function completePasswordReset(
       email: row.email,
       revokedSessions: revoked.rowCount ?? 0
     }
+  };
+}
+
+/**
+ * How long a link an operator issues stays usable.
+ *
+ * Longer than the self-service hour, because the person holding it is not the
+ * person who asked for it: the operator still has to get it to them, over a
+ * call or a chat, and a link that dies before it arrives is a second support
+ * ticket. A day rather than an invitation's week, because unlike an invitation
+ * this one takes over an account that already holds data.
+ */
+export const OPERATOR_RESET_TTL_HOURS = 24;
+
+/**
+ * Why an operator-issued reset was refused.
+ *
+ * Carries the remedy in its message. The caller is an operator, not an
+ * anonymous visitor, so there is no enumeration to defend against here — the
+ * same person can already list every account — and a refusal that does not say
+ * what to do instead is a refusal they will simply retry.
+ */
+export class PasswordResetUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PasswordResetUnavailableError";
+  }
+}
+
+export interface IssuePasswordResetForUserInput {
+  userId: string;
+  actor: AuditActor;
+  ttlHours?: number;
+}
+
+/**
+ * Issues a reset link for a named user, on an operator's say-so.
+ *
+ * The counterpart of `requestPasswordReset` for the person who cannot receive
+ * mail, has lost access to the address, or is on the phone with support. It
+ * produces the same kind of token, redeemed by the same `completePasswordReset`,
+ * so nothing about finishing the reset differs from the self-service path —
+ * including that redeeming it revokes every session the account holds.
+ *
+ * The operator never learns or sets the password. They receive a link, once,
+ * and the person it belongs to chooses the password themselves. A form that let
+ * an operator type somebody else's password would mean the operator knows it,
+ * and the audit trail could no longer tell their sign-ins apart.
+ *
+ * Returns null for an unknown or malformed id, so the route answers 404 for both.
+ * Throws `PasswordResetUnavailableError` for an account that exists but cannot
+ * use a reset:
+ *
+ * - **invited** — there is no password to replace; the invitation is the link
+ *   they need, and a reset would quietly accept it on their behalf.
+ * - **suspended** — `completePasswordReset` sets the account active, so issuing
+ *   one here would hand an operator a way to undo a removal without saying so.
+ *   Reactivate first, deliberately, then reset.
+ * - **tenant archived** — nobody in it can sign in, with or without a password.
+ *
+ * Any links already outstanding for the user are burned first, so the newest one
+ * is the only one that works. An operator reissuing because the first link went
+ * to the wrong chat should not leave that one live.
+ */
+export async function issuePasswordResetForUser(
+  db: Queryable,
+  input: IssuePasswordResetForUserInput
+): Promise<IssuedPasswordReset | null> {
+  if (!isUuid(input.userId)) return null;
+
+  const candidate = await db.query<CandidateRow & { has_password: boolean }>(
+    `SELECT t.id AS tenant_id, u.id AS user_id, u.email, u.status,
+            t.deleted_at AS tenant_deleted_at,
+            u.password_hash IS NOT NULL AS has_password
+     FROM "user" u
+     JOIN tenant t ON t.id = u.tenant_id
+     WHERE u.id = $1`,
+    [input.userId]
+  );
+
+  const row = candidate.rows[0];
+  if (!row) return null;
+
+  if (row.tenant_deleted_at) {
+    throw new PasswordResetUnavailableError(
+      "This account belongs to a removed tenant, so it cannot sign in. Restore the tenant first."
+    );
+  }
+  if (row.status === "disabled") {
+    throw new PasswordResetUnavailableError(
+      "This account has been removed. Reactivate it first, then reset its password."
+    );
+  }
+  if (row.status !== "active" || !row.has_password) {
+    throw new PasswordResetUnavailableError(
+      "This account has not accepted its invitation yet, so it has no password to reset. Reissue the invitation instead."
+    );
+  }
+
+  await db.query(
+    "UPDATE password_reset SET used_at = now() WHERE user_id = $1 AND used_at IS NULL",
+    [row.user_id]
+  );
+
+  const token = generateResetToken();
+  const ttlHours = input.ttlHours ?? OPERATOR_RESET_TTL_HOURS;
+
+  const res = await db.query<{ id: string; expires_at: Date }>(
+    `INSERT INTO password_reset (tenant_id, user_id, token_hash, expires_at, requested_ip)
+     VALUES ($1, $2, $3, now() + ($4 || ' hours')::interval, $5)
+     RETURNING id, expires_at`,
+    [row.tenant_id, row.user_id, hashResetToken(token), String(ttlHours), input.actor.ip ?? null]
+  );
+
+  /*
+   * Written into the *target* tenant's log, naming the operator. From inside
+   * that tenant this is somebody they cannot see arranging access to one of
+   * their accounts, which is exactly the kind of act that has to be answerable.
+   * The token is not recorded in any form — the entry says a link exists and
+   * until when, which is all a reviewer needs.
+   */
+  await recordAuditEntry(db, {
+    tenantId: row.tenant_id,
+    action: "password.reset_issued",
+    entityType: "user",
+    entityId: row.user_id,
+    actor: input.actor,
+    before: null,
+    after: null,
+    context: { expiresAt: res.rows[0].expires_at.toISOString(), email: row.email }
+  });
+
+  return {
+    id: res.rows[0].id,
+    tenantId: row.tenant_id,
+    userId: row.user_id,
+    email: row.email,
+    token,
+    expiresAt: res.rows[0].expires_at
   };
 }

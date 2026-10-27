@@ -66,6 +66,10 @@ const SEVERITY_BY_ACTION: Record<string, ActivitySeverity> = {
   "user.suspended": "warning",
   "user.reactivated": "success",
   "password.reset": "warning",
+  // An operator arranging access to somebody else's account. Nothing has
+  // changed yet — the password moves only when the link is redeemed, which
+  // writes `password.reset` — but it is worth noticing in the tenant's feed.
+  "password.reset_issued": "warning",
   "mfa.enabled": "success",
   // Commercial changes an operator makes to a customer (US-072). Losing a
   // module and losing a subscription are both things the tenant will notice

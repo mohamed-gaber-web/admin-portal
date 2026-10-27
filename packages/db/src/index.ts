@@ -197,6 +197,9 @@ export {
 export {
   requestPasswordReset,
   completePasswordReset,
+  issuePasswordResetForUser,
+  PasswordResetUnavailableError,
+  OPERATOR_RESET_TTL_HOURS,
   generateResetToken,
   hashResetToken,
   InvalidPasswordResetError,
