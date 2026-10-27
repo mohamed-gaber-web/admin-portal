@@ -8,6 +8,7 @@ import {
 import { RouterLink } from "@angular/router";
 import { AuthService } from "@core/auth/auth.service";
 import { SessionStore } from "@core/auth/session.store";
+import { describeError } from "@core/http/api-error";
 import { injectT } from "@core/i18n/i18n.service";
 import { ConfigurationService } from "@features/configuration/configuration.service";
 import type { MobileConfig } from "@growpath/contracts";
@@ -17,7 +18,9 @@ import {
   ButtonComponent,
   CardComponent,
   CardHeaderComponent,
+  ErrorStateComponent,
   IconComponent,
+  SkeletonComponent,
   TabsComponent,
   type Tab
 } from "@shared/ui";
@@ -50,8 +53,10 @@ import { ThemeToggleComponent } from "../../layout/theme-toggle.component";
     ButtonComponent,
     CardComponent,
     CardHeaderComponent,
+    ErrorStateComponent,
     IconComponent,
     LocaleToggleComponent,
+    SkeletonComponent,
     MfaEnrolmentComponent,
     MobileLogoComponent,
     PageHeaderComponent,
@@ -99,16 +104,26 @@ import { ThemeToggleComponent } from "../../layout/theme-toggle.component";
           The company logo applies to every device in the tenant, not to this
           browser, so it is its own card rather than a row in the one above.
           Hidden for a session that cannot read the tenant's configuration —
-          operators included, whose platform workspace has no mobile app.
+          operators included, whose platform workspace has no mobile app. A
+          failed load is shown, never hidden: a card that silently vanishes
+          reads as a feature that does not exist.
         -->
-        @if (canSeeLogo() && logoConfig() !== undefined) {
+        @if (canSeeLogo()) {
           <ui-card class="mt-6 block max-w-2xl animate-fade-in">
             <ui-card-header
               [title]="t('mobileLogo.title')"
               [description]="t('mobileLogo.subtitle')"
             />
             <div class="mt-6">
-              @if (logoConfig(); as config) {
+              @if (logoError()) {
+                <ui-error-state
+                  [title]="t('mobileConfig.loadFailed')"
+                  [message]="logoError() ?? ''"
+                  (retry)="loadLogoConfig()"
+                />
+              } @else if (logoConfig() === undefined) {
+                <ui-skeleton shape="h-20 w-full rounded-xl" />
+              } @else if (logoConfig(); as config) {
                 <app-mobile-logo
                   [config]="config"
                   [readOnly]="!canManageLogo()"
@@ -255,17 +270,23 @@ export class SettingsPage {
   protected readonly canManageLogo = computed(() => this.session.hasPermission("tenant.write"));
 
   /**
-   * The mobile configuration the logo belongs to. Undefined while loading or
-   * if the load failed (the card stays hidden), null when the tenant has not set
-   * up the mobile app yet.
+   * The mobile configuration the logo belongs to. Undefined while loading, null
+   * when the tenant has not set up the mobile app yet.
    */
   protected readonly logoConfig = signal<MobileConfig | null | undefined>(undefined);
+  protected readonly logoError = signal<string | null>(null);
 
   constructor() {
-    if (!this.canSeeLogo()) return;
+    if (this.canSeeLogo()) this.loadLogoConfig();
+  }
+
+  protected loadLogoConfig(): void {
+    this.logoError.set(null);
+    this.logoConfig.set(undefined);
     this.configuration.getMobileConfig().subscribe({
       next: (config) => this.logoConfig.set(config),
-      error: () => this.logoConfig.set(undefined)
+      error: (error: unknown) =>
+        this.logoError.set(describeError(error, this.t, "mobileConfig.loadError"))
     });
   }
 }
