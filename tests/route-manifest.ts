@@ -302,6 +302,20 @@ export const DECLARED_ROUTES: DeclaredRoute[] = [
     audits: ["mobile_config.updated"]
   },
   {
+    method: "PUT",
+    path: "/mobile-config/logo",
+    visibility: "tenant-scoped",
+    note: "Sets the logo the mobile app shows beside the Grow Path mark. PNG, JPEG or WebP only, at most 64 KB, and the bytes must match the declared type — SVG is refused because it can carry script and this image renders on every device in the tenant. 404 until the configuration itself exists.",
+    audits: ["mobile_config.logo_updated"]
+  },
+  {
+    method: "DELETE",
+    path: "/mobile-config/logo",
+    visibility: "tenant-scoped",
+    note: "Removes the logo, so devices show the Grow Path mark alone. Idempotent: removing an absent logo succeeds and writes no audit entry, because nothing changed.",
+    audits: ["mobile_config.logo_removed"]
+  },
+  {
     method: "GET",
     path: "/mobile/config",
     visibility: "public",

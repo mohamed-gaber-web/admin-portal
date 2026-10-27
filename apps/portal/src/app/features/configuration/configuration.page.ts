@@ -17,6 +17,7 @@ import {
 import { PageHeaderComponent } from "../../layout/page-header.component";
 import { ConnectionCardComponent } from "./components/connection-card.component";
 import { MobileConfigFormComponent } from "./components/mobile-config-form.component";
+import { MobileLogoComponent } from "./components/mobile-logo.component";
 import { OwnModulesComponent } from "./components/own-modules.component";
 import { ConfigurationService } from "./configuration.service";
 
@@ -63,6 +64,7 @@ import { ConfigurationService } from "./configuration.service";
     EmptyStateComponent,
     ErrorStateComponent,
     MobileConfigFormComponent,
+    MobileLogoComponent,
     OwnModulesComponent,
     PageHeaderComponent,
     SkeletonComponent,
@@ -225,6 +227,16 @@ import { ConfigurationService } from "./configuration.service";
                 [readOnly]="!canManageMobile()"
                 (changed)="onMobileChanged($event)"
               />
+
+              <!-- Only once the configuration exists: the logo belongs to it. -->
+              @if (mobile().data; as config) {
+                <app-mobile-logo
+                  class="mt-5"
+                  [config]="config"
+                  [readOnly]="!canManageMobile()"
+                  (changed)="onMobileChanged($event)"
+                />
+              }
             }
           }
         </div>

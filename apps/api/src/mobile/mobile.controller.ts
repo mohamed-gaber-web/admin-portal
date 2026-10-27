@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Ip,
   NotFoundException,
@@ -14,9 +15,11 @@ import {
   API_ROUTES,
   mobileConfigQuerySchema,
   saveMobileConfigSchema,
+  saveMobileLogoSchema,
   type MobileConfig,
   type MobileConfigQuery,
-  type SaveMobileConfigInput
+  type SaveMobileConfigInput,
+  type SaveMobileLogoInput
 } from "@growpath/contracts";
 import { AccessTokenGuard } from "../auth/access-token.guard";
 import { PermissionGuard, RequiresPermission } from "../auth/permission.guard";
@@ -110,6 +113,37 @@ export class MobileConfigController {
     @Ip() ip: string
   ): Promise<MobileConfig> {
     const config = await this.mobile.save(dto, actorFrom(request, ip));
+    if (!config) {
+      throw new NotFoundException({ message: "No mobile configuration for this tenant." });
+    }
+    return config;
+  }
+
+  /**
+   * Sets the tenant's logo, shown in the app beside the Grow Path mark.
+   *
+   * `tenant.write`, like the rest of this record: the image appears on every
+   * device in the tenant. 404 until the configuration itself has been saved.
+   */
+  @Put(API_ROUTES.tenantMobileLogo)
+  @RequiresPermission("tenant.write")
+  async saveLogo(
+    @Body(new ZodValidationPipe(saveMobileLogoSchema)) dto: SaveMobileLogoInput,
+    @Req() request: Request,
+    @Ip() ip: string
+  ): Promise<MobileConfig> {
+    const config = await this.mobile.saveLogo(dto, actorFrom(request, ip));
+    if (!config) {
+      throw new NotFoundException({ message: "No mobile configuration for this tenant." });
+    }
+    return config;
+  }
+
+  /** Removes the logo. Succeeds when there is none, since the outcome is the same. */
+  @Delete(API_ROUTES.tenantMobileLogo)
+  @RequiresPermission("tenant.write")
+  async removeLogo(@Req() request: Request, @Ip() ip: string): Promise<MobileConfig> {
+    const config = await this.mobile.removeLogo(actorFrom(request, ip));
     if (!config) {
       throw new NotFoundException({ message: "No mobile configuration for this tenant." });
     }

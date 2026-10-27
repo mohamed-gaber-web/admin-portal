@@ -135,9 +135,14 @@ export {
   findMobileBootstrap,
   findMobileConfig,
   saveMobileConfig,
+  saveMobileLogo,
+  removeMobileLogo,
   type MobileConfigRecord,
+  type MobileLogo,
+  type MobileLogoContentType,
   type MobileUserAuth,
-  type SaveMobileConfigInput
+  type SaveMobileConfigInput,
+  type SaveMobileLogoInput
 } from "./mobile-config";
 export {
   recordAuditEntry,

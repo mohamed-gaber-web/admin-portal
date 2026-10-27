@@ -1,5 +1,5 @@
 import { Injectable, inject } from "@angular/core";
-import type { Observable } from "rxjs";
+import { map, type Observable } from "rxjs";
 import {
   API_ROUTES,
   tenantModuleListSchema,
@@ -118,5 +118,17 @@ export class ConfigurationService {
       input,
       mobileConfigSchema
     );
+  }
+
+  /** Sets the logo devices show beside the Grow Path mark. A base64 `data:` URL. */
+  saveMobileLogo(dataUrl: string): Observable<MobileConfig> {
+    return this.api.putValidated(API_ROUTES.tenantMobileLogo, { dataUrl }, mobileConfigSchema);
+  }
+
+  /** Removes the logo, so devices show the Grow Path mark alone. */
+  removeMobileLogo(): Observable<MobileConfig> {
+    return this.api
+      .delete<unknown>(API_ROUTES.tenantMobileLogo)
+      .pipe(map((body) => mobileConfigSchema.parse(body)));
   }
 }

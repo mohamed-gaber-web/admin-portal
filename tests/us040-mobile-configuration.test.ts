@@ -516,4 +516,73 @@ describe.skipIf(!hasDb)("US-040 - multi-tenant mobile configuration", () => {
       expect(uat?.connection).toBe("not_configured");
     });
   });
+
+  describe("AC9 - a tenant's logo reaches its devices, and nothing but an image does", () => {
+    /** A 1x1 PNG. Real bytes, because the API checks the file signature. */
+    const PNG_BASE64 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const LOGO = `data:image/png;base64,${PNG_BASE64}`;
+
+    const bootstrap = async (): Promise<{ logoDataUrl: string | null }> =>
+      (await (await request("GET", `/mobile/config?slug=${tenant.slug}`)).json()) as {
+        logoDataUrl: string | null;
+      };
+
+    it("serves no logo until one is set, so the app shows Grow Path alone", async () => {
+      expect((await bootstrap()).logoDataUrl).toBeNull();
+    });
+
+    it("serves a stored logo to devices in the unauthenticated bootstrap", async () => {
+      const res = await request("PUT", "/mobile-config/logo", { dataUrl: LOGO }, tenant.accessToken);
+      expect(res.status, await res.clone().text()).toBe(200);
+      expect((await bootstrap()).logoDataUrl).toBe(LOGO);
+    });
+
+    it("refuses an SVG, which can carry script onto every device", async () => {
+      const svg = `data:image/svg+xml;base64,${Buffer.from("<svg onload='x()'/>").toString("base64")}`;
+      const res = await request("PUT", "/mobile-config/logo", { dataUrl: svg }, tenant.accessToken);
+      expect(res.status).toBe(400);
+    });
+
+    it("refuses bytes that are not the type the upload claims", async () => {
+      const lying = `data:image/png;base64,${Buffer.from("not really a png").toString("base64")}`;
+      const res = await request("PUT", "/mobile-config/logo", { dataUrl: lying }, tenant.accessToken);
+      expect(res.status).toBe(400);
+      // And the stored one is untouched.
+      expect((await bootstrap()).logoDataUrl).toBe(LOGO);
+    });
+
+    it("refuses a logo over 64 KB", async () => {
+      const header = Buffer.from(PNG_BASE64, "base64");
+      const big = Buffer.concat([header, Buffer.alloc(64 * 1024)]).toString("base64");
+      const res = await request(
+        "PUT",
+        "/mobile-config/logo",
+        { dataUrl: `data:image/png;base64,${big}` },
+        tenant.accessToken
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it("answers 404 for a tenant with no configuration to attach it to", async () => {
+      const res = await request("PUT", "/mobile-config/logo", { dataUrl: LOGO }, other.accessToken);
+      expect(res.status).toBe(404);
+    });
+
+    it("records that the logo changed, not the image itself", async () => {
+      const res = await pool.query<{ after_values: unknown }>(
+        "SELECT after_values FROM audit_log WHERE tenant_id = $1 AND action = 'mobile_config.logo_updated'",
+        [tenant.tenantId]
+      );
+      expect(res.rows.length).toBeGreaterThan(0);
+      expect(JSON.stringify(res.rows)).not.toContain(PNG_BASE64);
+      expect(res.rows[0].after_values).toMatchObject({ logoContentType: "image/png" });
+    });
+
+    it("goes back to Grow Path alone when the logo is removed", async () => {
+      const res = await request("DELETE", "/mobile-config/logo", undefined, tenant.accessToken);
+      expect(res.status).toBe(200);
+      expect((await bootstrap()).logoDataUrl).toBeNull();
+    });
+  });
 });

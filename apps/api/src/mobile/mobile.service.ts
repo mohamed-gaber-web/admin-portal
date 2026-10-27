@@ -1,14 +1,24 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import {
   findMobileBootstrap,
   findMobileConfig,
+  removeMobileLogo,
   saveMobileConfig,
+  saveMobileLogo,
   withoutTenantScope,
   withRequestTenantScope,
   type AuditActor,
-  type MobileConfigRecord
+  type MobileConfigRecord,
+  type MobileLogo
 } from "@growpath/db";
-import type { MobileConfig, SaveMobileConfigInput } from "@growpath/contracts";
+import {
+  TENANT_LOGO_DATA_URL,
+  TENANT_LOGO_MAX_BYTES,
+  type MobileConfig,
+  type SaveMobileConfigInput,
+  type SaveMobileLogoInput,
+  type TenantLogoContentType
+} from "@growpath/contracts";
 import type { Pool } from "pg";
 import { DATABASE_POOL } from "../database/database.module";
 
@@ -21,14 +31,59 @@ import { DATABASE_POOL } from "../database/database.module";
  * from here so much as name that table.
  */
 
+const toDataUrl = (logo: MobileLogo): string =>
+  `data:${logo.contentType};base64,${logo.data.toString("base64")}`;
+
 const toConfig = (record: MobileConfigRecord): MobileConfig => ({
   tenantSlug: record.tenantSlug,
   tenantName: record.tenantName,
   apiBaseUrl: record.apiBaseUrl,
   userAuth: record.userAuth,
   minimumAppVersion: record.minimumAppVersion,
+  logoDataUrl: record.logo ? toDataUrl(record.logo) : null,
   updatedAt: record.updatedAt.toISOString()
 });
+
+/**
+ * Whether the bytes are what the `data:` prefix says they are.
+ *
+ * The prefix is the caller's claim; the file signature is the fact. Checked so
+ * that what a device is told is a PNG is one — a mislabelled payload is at best
+ * a broken image on every handset, and at worst a sniffing browser's guess.
+ */
+function matchesSignature(type: TenantLogoContentType, bytes: Buffer): boolean {
+  switch (type) {
+    case "image/png":
+      return bytes
+        .subarray(0, 8)
+        .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    case "image/jpeg":
+      return bytes.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]));
+    case "image/webp":
+      return (
+        bytes.subarray(0, 4).toString("latin1") === "RIFF" &&
+        bytes.subarray(8, 12).toString("latin1") === "WEBP"
+      );
+  }
+}
+
+/** Decodes an uploaded logo, refusing anything oversized or mislabelled. */
+function decodeLogo(dataUrl: string): { contentType: TenantLogoContentType; data: Buffer } {
+  const match = TENANT_LOGO_DATA_URL.exec(dataUrl);
+  if (!match) {
+    throw new BadRequestException({ message: "The logo must be a PNG, JPEG or WebP image." });
+  }
+  const contentType = match[1] as TenantLogoContentType;
+  const data = Buffer.from(match[2], "base64");
+
+  if (data.length === 0 || data.length > TENANT_LOGO_MAX_BYTES) {
+    throw new BadRequestException({ message: "The logo must be at most 64 KB." });
+  }
+  if (!matchesSignature(contentType, data)) {
+    throw new BadRequestException({ message: "The logo's contents do not match its type." });
+  }
+  return { contentType, data };
+}
 
 @Injectable()
 export class MobileService {
@@ -77,6 +132,26 @@ export class MobileService {
         },
         actor
       )
+    );
+    return record ? toConfig(record) : null;
+  }
+
+  /**
+   * Sets the logo. Null when the tenant has no configuration yet — a logo with
+   * no devices to show it on is not something to store.
+   */
+  async saveLogo(input: SaveMobileLogoInput, actor: AuditActor): Promise<MobileConfig | null> {
+    const logo = decodeLogo(input.dataUrl);
+    const record = await withRequestTenantScope(this.pool, (client) =>
+      saveMobileLogo(client, logo, actor)
+    );
+    return record ? toConfig(record) : null;
+  }
+
+  /** Removes the logo, so devices show the Grow Path mark alone. */
+  async removeLogo(actor: AuditActor): Promise<MobileConfig | null> {
+    const record = await withRequestTenantScope(this.pool, (client) =>
+      removeMobileLogo(client, actor)
     );
     return record ? toConfig(record) : null;
   }

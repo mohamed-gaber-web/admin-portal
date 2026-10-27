@@ -34,6 +34,17 @@ export interface MobileConfigRecord {
   apiBaseUrl: string;
   userAuth: MobileUserAuth | null;
   minimumAppVersion: string | null;
+  /** The tenant's own logo, shown beside the Grow Path mark. Null when none. */
+  logo: MobileLogo | null;
+  updatedAt: Date;
+}
+
+/** Raster formats only — see the migration for why SVG is not among them. */
+export type MobileLogoContentType = "image/png" | "image/jpeg" | "image/webp";
+
+export interface MobileLogo {
+  contentType: MobileLogoContentType;
+  data: Buffer;
   updatedAt: Date;
 }
 
@@ -47,6 +58,9 @@ interface MobileConfigRow {
   user_auth_redirect_uri: string | null;
   user_auth_scopes: string[] | null;
   minimum_app_version: string | null;
+  logo_content_type: MobileLogoContentType | null;
+  logo_data: Buffer | null;
+  logo_updated_at: Date | null;
   updated_at: Date;
 }
 
@@ -62,7 +76,9 @@ const MOBILE_CONFIG_COLUMNS = `
   c.tenant_id, t.slug, t.name,
   c.api_base_url,
   c.user_auth_client_id, c.user_auth_authority, c.user_auth_redirect_uri, c.user_auth_scopes,
-  c.minimum_app_version, c.updated_at
+  c.minimum_app_version,
+  c.logo_content_type, c.logo_data, c.logo_updated_at,
+  c.updated_at
 `;
 
 const toRecord = (row: MobileConfigRow): MobileConfigRecord => ({
@@ -82,6 +98,15 @@ const toRecord = (row: MobileConfigRow): MobileConfigRecord => ({
       }
     : null,
   minimumAppVersion: row.minimum_app_version,
+  // All three or none, enforced by tenant_mobile_config_logo_complete_check.
+  logo:
+    row.logo_content_type && row.logo_data && row.logo_updated_at
+      ? {
+          contentType: row.logo_content_type,
+          data: row.logo_data,
+          updatedAt: row.logo_updated_at
+        }
+      : null,
   updatedAt: row.updated_at
 });
 
@@ -222,6 +247,100 @@ export async function saveMobileConfig(
       userAuthAuthority: after.userAuth?.authority ?? null,
       minimumAppVersion: after.minimumAppVersion
     }
+  });
+
+  return after;
+}
+
+export interface SaveMobileLogoInput {
+  contentType: MobileLogoContentType;
+  /** Already decoded and checked against its declared type by the caller. */
+  data: Buffer;
+}
+
+/** What the audit log records of a logo: that it changed, not its bytes. */
+const auditedLogo = (logo: MobileLogo | null) => ({
+  logoContentType: logo?.contentType ?? null,
+  logoBytes: logo?.data.length ?? 0
+});
+
+/**
+ * Sets the caller's tenant's logo.
+ *
+ * An UPDATE, never an upsert: the logo belongs to a mobile configuration, and a
+ * tenant without one has no devices to show it on. Null when there is no
+ * configuration yet, which the caller turns into a 404.
+ *
+ * `updated_at` moves too, because a device re-reads its configuration when that
+ * changes and the logo is part of what it reads.
+ */
+export async function saveMobileLogo(
+  db: Queryable,
+  input: SaveMobileLogoInput,
+  actor: AuditActor
+): Promise<MobileConfigRecord | null> {
+  const before = await findMobileConfig(db);
+  if (!before) return null;
+
+  await db.query(
+    `UPDATE tenant_mobile_config
+        SET logo_content_type = $1,
+            logo_data = $2,
+            logo_updated_at = now(),
+            updated_at = now()`,
+    [input.contentType, input.data]
+  );
+
+  const after = await findMobileConfig(db);
+  if (!after) return null;
+
+  await recordAuditEntry(db, {
+    tenantId: after.tenantId,
+    action: "mobile_config.logo_updated",
+    entityType: "tenant_mobile_config",
+    entityId: after.tenantId,
+    actor,
+    before: auditedLogo(before.logo),
+    after: auditedLogo(after.logo)
+  });
+
+  return after;
+}
+
+/**
+ * Removes the caller's tenant's logo, so devices go back to the Grow Path mark
+ * alone.
+ *
+ * Idempotent: removing a logo that is not there succeeds and writes no audit
+ * entry, because nothing changed. Null only when there is no configuration.
+ */
+export async function removeMobileLogo(
+  db: Queryable,
+  actor: AuditActor
+): Promise<MobileConfigRecord | null> {
+  const before = await findMobileConfig(db);
+  if (!before) return null;
+  if (!before.logo) return before;
+
+  await db.query(
+    `UPDATE tenant_mobile_config
+        SET logo_content_type = NULL,
+            logo_data = NULL,
+            logo_updated_at = NULL,
+            updated_at = now()`
+  );
+
+  const after = await findMobileConfig(db);
+  if (!after) return null;
+
+  await recordAuditEntry(db, {
+    tenantId: after.tenantId,
+    action: "mobile_config.logo_removed",
+    entityType: "tenant_mobile_config",
+    entityId: after.tenantId,
+    actor,
+    before: auditedLogo(before.logo),
+    after: auditedLogo(after.logo)
   });
 
   return after;

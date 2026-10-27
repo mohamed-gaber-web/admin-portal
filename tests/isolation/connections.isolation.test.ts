@@ -315,4 +315,46 @@ describe.skipIf(!hasDb)("US-013 - cross-tenant isolation for connections", () =>
       ).toBe(401);
     });
   });
+
+  /** A 1x1 PNG. Real bytes, because the API checks the file signature. */
+  const LOGO =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+  const logoOf = async (token: string): Promise<string | null> => {
+    const res = await send("GET", "/mobile-config", undefined, token);
+    return ((await res.json()) as { logoDataUrl: string | null }).logoDataUrl;
+  };
+
+  describe(coversRoute("PUT /mobile-config/logo"), () => {
+    it("sets the caller's own logo and leaves a neighbour's configuration alone", async () => {
+      // Runs after the PUT /mobile-config block, so tenant A has a configuration.
+      const res = await send("PUT", "/mobile-config/logo", { dataUrl: LOGO }, tenantA.accessToken);
+      expect(res.status, await res.clone().text()).toBe(200);
+
+      expect(await logoOf(tenantA.accessToken)).toBe(LOGO);
+      // An image on every device in the wrong tenant is a branding incident.
+      expect(await logoOf(tenantB.accessToken)).toBeNull();
+    });
+
+    it("refuses an unauthenticated request", async () => {
+      expect((await send("PUT", "/mobile-config/logo", { dataUrl: LOGO })).status).toBe(401);
+    });
+  });
+
+  describe(coversRoute("DELETE /mobile-config/logo"), () => {
+    it("removes the caller's own logo and not a neighbour's", async () => {
+      const seeded = await send("PUT", "/mobile-config/logo", { dataUrl: LOGO }, tenantB.accessToken);
+      expect(seeded.status).toBe(200);
+
+      const res = await send("DELETE", "/mobile-config/logo", undefined, tenantA.accessToken);
+      expect(res.status).toBe(200);
+
+      expect(await logoOf(tenantA.accessToken)).toBeNull();
+      expect(await logoOf(tenantB.accessToken)).toBe(LOGO);
+    });
+
+    it("refuses an unauthenticated request", async () => {
+      expect((await send("DELETE", "/mobile-config/logo")).status).toBe(401);
+    });
+  });
 });

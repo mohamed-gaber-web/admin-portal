@@ -128,6 +128,16 @@ export const API_ROUTES = {
   tenantMobileConfig: "/mobile-config",
 
   /**
+   * The tenant's logo, shown in the mobile app beside the Grow Path mark.
+   *
+   * A sub-resource rather than a field on the `PUT` above, so saving the API URL
+   * does not mean re-sending an image, and replacing the image does not mean
+   * re-sending the API URL. `PUT` sets it, `DELETE` removes it; both answer with
+   * the whole configuration.
+   */
+  tenantMobileLogo: "/mobile-config/logo",
+
+  /**
    * What a device fetches at launch, replacing its bundled `environment.ts`
    * (US-040).
    *

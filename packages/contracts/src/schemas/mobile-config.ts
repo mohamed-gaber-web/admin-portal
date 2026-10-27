@@ -69,6 +69,19 @@ export const mobileConfigSchema = z
     minimumAppVersion: z.string().nullable(),
 
     /**
+     * The tenant's own logo, as a `data:` URL the app binds straight to an
+     * `<img>`. Null when none is set, and the app then shows the Grow Path mark
+     * alone.
+     *
+     * Inline rather than a URL to a second public endpoint. The device caches
+     * this response, so the logo is there on an offline launch; and the only
+     * throttle an unauthenticated route can use is shared with sign-in, so a
+     * warehouse of devices fetching an image would spend the budget its users
+     * need to log in. The size cap below is what keeps inlining it affordable.
+     */
+    logoDataUrl: z.string().nullable(),
+
+    /**
      * When this configuration last changed.
      *
      * Lets a client cache it and re-fetch on a schedule rather than at every
@@ -105,6 +118,46 @@ export const saveMobileConfigSchema = z
   .strict();
 
 export type SaveMobileConfigInput = z.infer<typeof saveMobileConfigSchema>;
+
+/**
+ * The largest logo a tenant may store, decoded. Matches the database's
+ * `tenant_mobile_config_logo_size_check`.
+ *
+ * 64 KiB, because the logo travels inside every bootstrap response, and because
+ * the API's JSON body limit is 100 KB — base64 adds a third, which leaves this
+ * comfortably under it. The portal scales an image down before uploading, so a
+ * logo at the size the app draws it is a few kilobytes.
+ */
+export const TENANT_LOGO_MAX_BYTES = 64 * 1024;
+
+/**
+ * Raster formats only. SVG is a document that can carry script, and this image
+ * is rendered on every device in the tenant.
+ */
+export const TENANT_LOGO_CONTENT_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
+
+export type TenantLogoContentType = (typeof TENANT_LOGO_CONTENT_TYPES)[number];
+
+/** `data:image/<type>;base64,<payload>` — the one shape accepted and served. */
+export const TENANT_LOGO_DATA_URL = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+={0,2})$/;
+
+/**
+ * Uploading a logo, from the portal.
+ *
+ * The length bound is the base64 size of `TENANT_LOGO_MAX_BYTES` plus the
+ * prefix, so an oversized upload is refused before it is decoded. The API then
+ * decodes it and checks the bytes really are the type the prefix claims.
+ */
+export const saveMobileLogoSchema = z
+  .object({
+    dataUrl: z
+      .string()
+      .max(Math.ceil(TENANT_LOGO_MAX_BYTES / 3) * 4 + 32)
+      .regex(TENANT_LOGO_DATA_URL, "dataUrl must be a base64 PNG, JPEG or WebP data: URL")
+  })
+  .strict();
+
+export type SaveMobileLogoInput = z.infer<typeof saveMobileLogoSchema>;
 
 /**
  * The slug a device presents to bootstrap itself.
