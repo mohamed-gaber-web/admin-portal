@@ -214,6 +214,7 @@ import { PlatformService } from "./platform.service";
                       {{ user.lastSeenAt | relativeTime }}
                     </td>
                     <td class="text-end">
+                      @if (canWrite() && (user.status !== "suspended" || holdsAddress(user))) {
                       <ui-dropdown align="end">
                         <button
                           type="button"
@@ -227,43 +228,28 @@ import { PlatformService } from "./platform.service";
                                password to replace, and a removed one would be
                                quietly reactivated by redeeming the link — the
                                API refuses both with the reason. -->
-                          @if (user.status === "active" && canWrite()) {
+                          @if (user.status === "active") {
                             <button uiMenuItem type="button" (click)="askReset(user)">
                               <ui-icon name="key" [size]="15" />
                               {{ t("platformUsers.resetPassword") }}
                             </button>
                           }
-                          @if (user.status === "suspended") {
-                            <button uiMenuItem type="button" (click)="ask(user, 'active')">
-                              <ui-icon name="refresh" [size]="15" />
-                              {{ t("platformUsers.reactivate") }}
-                            </button>
-                          }
-                          <!-- Absent for an invited account: reactivating one
-                               that never had a password is refused by the API,
-                               and suspending it changes nothing anybody can
-                               observe.
-
-                               Offered to an already-removed account too, when
-                               it is still holding a real address. Removing
-                               releases the address, and an account removed
-                               before that existed kept its own — so without
-                               this there is no way to ask for it back, and the
-                               address stays reserved by somebody the default
-                               list does not even show. -->
-                          @if (user.status === "active" || holdsAddress(user)) {
-                            <button
-                              uiMenuItem
-                              type="button"
-                              tone="danger"
-                              (click)="ask(user, 'suspended')"
-                            >
-                              <ui-icon name="lock" [size]="15" />
-                              {{ t(user.status === "active" ? "users.suspend" : "users.releaseAddress") }}
-                            </button>
-                          }
+                          <!-- Also offered on an already-removed account that
+                               still holds a real address: one removed before
+                               addresses were released kept its own, and
+                               removing it again is what frees it. -->
+                          <button
+                            uiMenuItem
+                            type="button"
+                            tone="danger"
+                            (click)="ask(user, 'suspended')"
+                          >
+                            <ui-icon name="trash" [size]="15" />
+                            {{ t("platformUsers.removeAccount") }}
+                          </button>
                         </div>
                       </ui-dropdown>
+                      }
                     </td>
                   </tr>
                 }
@@ -311,19 +297,10 @@ import { PlatformService } from "./platform.service";
 
     @if (pending(); as request) {
       <ui-confirm-dialog
-        [title]="t('platformUsers.confirmTitle', { name: request.user.name })"
-        [description]="
-          t(
-            request.status === 'suspended'
-              ? 'platformUsers.confirmSuspend'
-              : 'platformUsers.confirmReactivate',
-            { tenant: request.user.tenantSlug }
-          )
-        "
-        [confirmLabel]="
-          t(request.status === 'suspended' ? 'users.suspend' : 'platformUsers.reactivate')
-        "
-        [tone]="request.status === 'suspended' ? 'danger' : 'primary'"
+        [title]="t('platformUsers.removeConfirmTitle', { name: request.user.name })"
+        [description]="t('platformUsers.removeConfirmBody')"
+        [confirmLabel]="t('platformUsers.removeAccount')"
+        tone="danger"
         [busy]="busy()"
         (confirmed)="apply(request)"
         (cancelled)="pending.set(null)"
@@ -475,7 +452,7 @@ export class AllUsersPage {
       next: () => {
         this.busy.set(false);
         this.pending.set(null);
-        this.toasts.success(this.t("platformUsers.updated", { name: request.user.name }));
+        this.toasts.success(this.t("platformUsers.removed", { name: request.user.name }));
         this.load();
       },
       error: (error: unknown) => {

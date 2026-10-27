@@ -175,30 +175,26 @@ import { PlatformService } from "./platform.service";
                               <ui-icon name="more" [size]="16" />
                             </button>
                             <div dropdownMenu>
+                              <!-- Active accounts only: an invited one has no
+                                   password yet, and its invitation is the link. -->
                               @if (admin.status === "active") {
                                 <button uiMenuItem type="button" (click)="resetPending.set(admin)">
                                   <ui-icon name="key" [size]="15" />
                                   {{ t("platformUsers.resetPassword") }}
                                 </button>
                               }
-                              @if (isRemoved(admin)) {
-                                <button uiMenuItem type="button" (click)="ask(admin, 'active')">
-                                  <ui-icon name="refresh" [size]="15" />
-                                  {{ t("platformUsers.reactivate") }}
-                                </button>
-                              }
                               <!-- Not on your own row: the API refuses it, and an
                                    operator who removed themselves could not sign
                                    back in to undo it. -->
-                              @if (admin.status === "active" && admin.id !== currentUserId()) {
+                              @if (admin.id !== currentUserId()) {
                                 <button
                                   uiMenuItem
                                   type="button"
                                   tone="danger"
-                                  (click)="ask(admin, 'suspended')"
+                                  (click)="removePending.set(admin)"
                                 >
-                                  <ui-icon name="lock" [size]="15" />
-                                  {{ t("users.suspend") }}
+                                  <ui-icon name="trash" [size]="15" />
+                                  {{ t("platformUsers.removeAccount") }}
                                 </button>
                               }
                             </div>
@@ -235,24 +231,15 @@ import { PlatformService } from "./platform.service";
       />
     }
 
-    @if (pending(); as request) {
+    @if (removePending(); as admin) {
       <ui-confirm-dialog
-        [title]="t('platformUsers.confirmTitle', { name: displayName(request.admin) })"
-        [description]="
-          t(
-            request.status === 'suspended'
-              ? 'platformUsers.confirmSuspend'
-              : 'platformUsers.confirmReactivate',
-            { tenant: t('nav.platform') }
-          )
-        "
-        [confirmLabel]="
-          t(request.status === 'suspended' ? 'users.suspend' : 'platformUsers.reactivate')
-        "
-        [tone]="request.status === 'suspended' ? 'danger' : 'primary'"
+        [title]="t('platformUsers.removeConfirmTitle', { name: displayName(admin) })"
+        [description]="t('platformUsers.removeConfirmBody')"
+        [confirmLabel]="t('platformUsers.removeAccount')"
+        tone="danger"
         [busy]="busy()"
-        (confirmed)="applyStatus(request)"
-        (cancelled)="pending.set(null)"
+        (confirmed)="remove(admin)"
+        (cancelled)="removePending.set(null)"
       />
     }
 
@@ -277,10 +264,7 @@ export class PlatformAdminsPage {
   protected readonly resetIssued = signal<{ result: OperatorPasswordReset; name: string } | null>(
     null
   );
-  protected readonly pending = signal<{
-    admin: PlatformAdmin;
-    status: "active" | "suspended";
-  } | null>(null);
+  protected readonly removePending = signal<PlatformAdmin | null>(null);
 
   /**
    * Whether to draw the row actions. `platform.user.write` is what the reset
@@ -318,28 +302,26 @@ export class PlatformAdminsPage {
     return admin.name || admin.email;
   }
 
-  protected isRemoved(admin: PlatformAdmin): boolean {
-    return admin.status === "suspended" || admin.status === "disabled";
-  }
-
-  /** An invited operator has no password to reset and nothing worth removing yet. */
+  /**
+   * Your own row has a menu only when there is something to reset. Removing
+   * yourself is refused, and an invited account has no password yet.
+   */
   protected hasActions(admin: PlatformAdmin): boolean {
-    return admin.status === "active" || this.isRemoved(admin);
+    return admin.status === "active" || admin.id !== this.currentUserId();
   }
 
-  protected ask(admin: PlatformAdmin, status: "active" | "suspended"): void {
-    this.pending.set({ admin, status });
-  }
-
-  protected applyStatus(request: { admin: PlatformAdmin; status: "active" | "suspended" }): void {
+  /**
+   * Removes the account: it can no longer sign in, its address is released for
+   * reuse, and the list no longer shows it. The row is kept underneath because
+   * the audit log refers to it.
+   */
+  protected remove(admin: PlatformAdmin): void {
     this.busy.set(true);
-    this.platform.setUserStatus(request.admin.id, request.status).subscribe({
+    this.platform.setUserStatus(admin.id, "suspended").subscribe({
       next: () => {
         this.busy.set(false);
-        this.pending.set(null);
-        this.toasts.success(
-          this.t("platformUsers.updated", { name: this.displayName(request.admin) })
-        );
+        this.removePending.set(null);
+        this.toasts.success(this.t("platformUsers.removed", { name: this.displayName(admin) }));
         this.load();
       },
       error: (error: unknown) => {

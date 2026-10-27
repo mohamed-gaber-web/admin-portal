@@ -211,6 +211,11 @@ export interface PlatformAdminRecord {
  * so listing them here would overstate who can reach every tenant. The question
  * this screen answers is "who can act across the installation", and the role is
  * what actually decides that.
+ *
+ * Removed accounts are left out. A removed operator cannot sign in and holds
+ * nothing, so they do not answer that question either — and removing somebody
+ * has to take them off the screen they were removed from, or the removal reads
+ * as having done nothing.
  */
 export async function listPlatformAdmins(db: Queryable): Promise<PlatformAdminRecord[]> {
   const res = await db.query<{
@@ -226,7 +231,7 @@ export async function listPlatformAdmins(db: Queryable): Promise<PlatformAdminRe
        JOIN user_role ur ON ur.user_id = u.id
        JOIN role r ON r.id = ur.role_id
        JOIN tenant t ON t.id = r.tenant_id
-      WHERE t.is_platform AND r.name = $1
+      WHERE t.is_platform AND r.name = $1 AND u.status <> 'disabled'
       ORDER BY u.email`,
     [PLATFORM_ADMIN_ROLE]
   );
