@@ -123,19 +123,22 @@ import { ThemeToggleComponent } from "../../layout/theme-toggle.component";
                 />
               } @else if (logoConfig() === undefined) {
                 <ui-skeleton shape="h-20 w-full rounded-xl" />
-              } @else if (logoConfig(); as config) {
-                <app-mobile-logo
-                  [config]="config"
-                  [readOnly]="!canManageLogo()"
-                  (changed)="logoConfig.set($event)"
-                />
               } @else {
-                <ui-alert tone="info" [title]="t('mobileLogo.needsConfigTitle')">
-                  {{ t("mobileLogo.needsConfigBody") }}
-                  <a routerLink="/configuration" class="font-medium text-primary underline">
-                    {{ t("mobileLogo.needsConfigLink") }}
-                  </a>
-                </ui-alert>
+                <!-- Nested: Angular allows "as" only on a primary @if. -->
+                @if (logoConfig(); as config) {
+                  <app-mobile-logo
+                    [config]="config"
+                    [readOnly]="!canManageLogo()"
+                    (changed)="logoConfig.set($event)"
+                  />
+                } @else {
+                  <ui-alert tone="info" [title]="t('mobileLogo.needsConfigTitle')">
+                    {{ t("mobileLogo.needsConfigBody") }}
+                    <a routerLink="/configuration" class="font-medium text-primary underline">
+                      {{ t("mobileLogo.needsConfigLink") }}
+                    </a>
+                  </ui-alert>
+                }
               }
             </div>
           </ui-card>
