@@ -17,11 +17,29 @@ export const USER_STATUSES = ["active", "invited", "suspended"] as const;
 export const userStatusSchema = z.enum(USER_STATUSES);
 export type UserStatus = z.infer<typeof userStatusSchema>;
 
+/**
+ * The address a removed user is left holding: `removed+<id>@invalid`.
+ *
+ * Removing an account releases its real address for reuse, and RFC 2606
+ * reserves `.invalid` so the placeholder can never collide with one or receive
+ * mail. It is not a well-formed address by `z.string().email()`'s rules — a bare
+ * `.invalid` has no dot in the domain — so a response schema that insisted on
+ * one rejected every removed account, and the portal reported a removal that
+ * had succeeded as a failure.
+ */
+export const RELEASED_ADDRESS_PATTERN = /^removed\+[0-9a-f-]{36}@invalid$/i;
+
+/** A user's address as a response carries it: a real one, or the placeholder. */
+const userAddressSchema = z.union([
+  z.string().email(),
+  z.string().regex(RELEASED_ADDRESS_PATTERN)
+]);
+
 /** A user as the list screen renders it. */
 export const userSummarySchema = z
   .object({
     id: z.string().uuid(),
-    email: z.string().email(),
+    email: userAddressSchema,
     /**
      * Display name, or the email's local part when nobody has supplied one.
      *
