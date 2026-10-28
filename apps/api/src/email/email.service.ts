@@ -86,7 +86,13 @@ export class EmailService {
     }
     const message: OutboundEmail = { ...build(), to };
     void this.transport.send(message).then(
-      () => apiLogger.info("email.sent", { kind, to, provider: this.transport.name }),
+      () => {
+        // The log transport has already said it sent nothing; "sent" here
+        // would contradict it.
+        if (this.transport.name !== "log") {
+          apiLogger.info("email.sent", { kind, to, provider: this.transport.name });
+        }
+      },
       (error: unknown) =>
         apiLogger.error("email.failed", {
           kind,

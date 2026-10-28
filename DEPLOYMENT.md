@@ -166,7 +166,7 @@ startup. Set them on the **API service** in Railway, then redeploy.
 | Variable | Value |
 | --- | --- |
 | `PORTAL_URL` | The portal's public address, e.g. `https://<your>.vercel.app` — every link points here |
-| `EMAIL_PROVIDER` | `graph` (Microsoft 365) or `acs` (Azure Communication Services) |
+| `EMAIL_PROVIDER` | `graph` (Microsoft 365), `acs` (Azure Communication Services) or `smtp`. Omit it when using SMTP: `EMAIL_HOST` alone selects it |
 | `EMAIL_FROM` | The sending address |
 | `EMAIL_FROM_NAME` | Optional, defaults to `Grow Path` |
 
@@ -219,6 +219,25 @@ Use this without Microsoft 365, or for high volume.
    EMAIL_ACS_CONNECTION_STRING=endpoint=https://<resource>.communication.azure.com/;accesskey=<key>
    PORTAL_URL=https://<your>.vercel.app
    ```
+
+### Option C — any SMTP server (`smtp`)
+
+Gmail, Office 365 SMTP, or ACS's SMTP endpoint. Set `EMAIL_HOST` and the API
+uses SMTP without `EMAIL_PROVIDER`.
+
+```
+EMAIL_HOST=smtp.gmail.com          # smtp.office365.com, smtp.azurecomm.net …
+EMAIL_PORT=587                     # 465 for implicit TLS
+EMAIL_USER=noreply@growpath.net    # the account that signs in
+EMAIL_PASSWORD=<password>          # Gmail: a 16-character app password, not the account password
+EMAIL_FROM=noreply@growpath.net    # optional; defaults to EMAIL_USER
+PORTAL_URL=https://<your>.vercel.app
+```
+
+A failure logs `email.failed` with the SMTP code: `EAUTH`/`535` is a wrong
+user or password (Gmail needs 2-Step Verification on and an app password;
+Office 365 needs SMTP AUTH enabled for the mailbox), `ECONNECTION`/`ETIMEDOUT`
+is a wrong host or port.
 
 ### Checking it works
 

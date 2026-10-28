@@ -1,5 +1,6 @@
 import { createHash, createHmac } from "node:crypto";
 import { fetchWithCorrelation } from "@growpath/observability";
+import { createTransport, type Transporter } from "nodemailer";
 import { apiLogger } from "../observability/logger";
 
 /**
@@ -11,12 +12,15 @@ import { apiLogger } from "../observability/logger";
  *          connection uses, so a tenant on Microsoft 365 needs no new service.
  *   acs    Azure Communication Services Email, through its REST API, signed
  *          with the resource's access key.
+ *   smtp   Any SMTP server — Gmail, Office 365, or ACS's own SMTP endpoint.
+ *          Chosen automatically when `EMAIL_HOST` is set and `EMAIL_PROVIDER`
+ *          is not, because a host with no provider can only mean SMTP.
  *   log    Nothing is sent; a line is logged saying a message would have been.
  *          The default, so a developer machine and the test suites need no
  *          mail account — and so an unconfigured server degrades to "the
  *          operator copies the link", which is how it worked before email.
  *
- * Plain `fetch` for both, rather than the Microsoft SDKs: two POSTs each are
+ * Plain `fetch` for Graph and ACS, rather than the Microsoft SDKs: two POSTs each are
  * the whole surface, and an SDK would add a dependency tree to a process that
  * holds the installation's most valuable credentials.
  */
@@ -29,7 +33,7 @@ export interface OutboundEmail {
 }
 
 export interface EmailTransport {
-  readonly name: "graph" | "acs" | "log";
+  readonly name: "graph" | "acs" | "smtp" | "log";
   /** Resolves on acceptance by the provider; rejects with a message safe to log. */
   send(message: OutboundEmail): Promise<void>;
 }
@@ -241,6 +245,60 @@ class AcsTransport implements EmailTransport {
   }
 }
 
+// ── SMTP ────────────────────────────────────────────────────────────────────
+
+export interface SmtpSettings {
+  host: string;
+  port: number;
+  /** Implicit TLS from the first byte (465). Otherwise STARTTLS when offered (587). */
+  secure: boolean;
+  user: string;
+  password: string;
+  sender: string;
+  senderName: string;
+}
+
+class SmtpTransport implements EmailTransport {
+  readonly name = "smtp" as const;
+  private readonly transporter: Transporter;
+
+  constructor(private readonly settings: SmtpSettings) {
+    this.transporter = createTransport({
+      host: settings.host,
+      port: settings.port,
+      secure: settings.secure,
+      auth: { user: settings.user, pass: settings.password },
+      // Bounded, so a server that accepts the connection and then says nothing
+      // cannot hold a send open indefinitely.
+      connectionTimeout: SEND_TIMEOUT_MS,
+      greetingTimeout: SEND_TIMEOUT_MS,
+      socketTimeout: SEND_TIMEOUT_MS
+    });
+  }
+
+  async send(message: OutboundEmail): Promise<void> {
+    try {
+      await this.transporter.sendMail({
+        from: { name: this.settings.senderName, address: this.settings.sender },
+        to: message.to,
+        subject: message.subject,
+        text: message.text,
+        html: message.html
+      });
+    } catch (error) {
+      // nodemailer's code and the server's reply code are what an operator can
+      // act on — EAUTH/535 is a wrong password, ECONNECTION a wrong host or
+      // port. Its message is not passed on: it can quote the server's reply.
+      const { code, responseCode } = (error ?? {}) as { code?: string; responseCode?: number };
+      throw new Error(
+        `SMTP ${this.settings.host}:${this.settings.port} failed` +
+          (code ? ` (${code})` : "") +
+          (responseCode ? ` with reply ${responseCode}` : "")
+      );
+    }
+  }
+}
+
 // ── Logging only ────────────────────────────────────────────────────────────
 
 class LogTransport implements EmailTransport {
@@ -265,7 +323,8 @@ class LogTransport implements EmailTransport {
  * not whether the product works, and the portal still shows every link.
  */
 export function transportFromEnv(env: NodeJS.ProcessEnv = process.env): EmailTransport {
-  const provider = env.EMAIL_PROVIDER?.trim().toLowerCase() || "log";
+  const provider =
+    env.EMAIL_PROVIDER?.trim().toLowerCase() || (env.EMAIL_HOST?.trim() ? "smtp" : "log");
   const sender = env.EMAIL_FROM?.trim() ?? "";
   const senderName = env.EMAIL_FROM_NAME?.trim() || "Grow Path";
 
@@ -288,6 +347,29 @@ export function transportFromEnv(env: NodeJS.ProcessEnv = process.env): EmailTra
       provider,
       missing: [...(parsed ? [] : ["EMAIL_ACS_CONNECTION_STRING"]), ...(sender ? [] : ["EMAIL_FROM"])]
     });
+  } else if (provider === "smtp") {
+    const port = Number(env.EMAIL_PORT?.trim() || 587);
+    const user = (env.EMAIL_USER ?? env.EMAIL_USERNAME)?.trim() ?? "";
+    const settings: SmtpSettings = {
+      host: env.EMAIL_HOST?.trim() ?? "",
+      port,
+      // 465 is implicit TLS; everything else upgrades with STARTTLS. Overridable
+      // for the odd server that runs implicit TLS elsewhere.
+      secure: env.EMAIL_SECURE ? env.EMAIL_SECURE.trim().toLowerCase() === "true" : port === 465,
+      user,
+      password: env.EMAIL_PASSWORD ?? "",
+      // Most SMTP servers refuse a From that is not the signed-in account.
+      sender: sender || user,
+      senderName
+    };
+    const missing = [
+      ...(settings.host ? [] : ["EMAIL_HOST"]),
+      ...(Number.isInteger(port) && port > 0 ? [] : ["EMAIL_PORT"]),
+      ...(settings.user ? [] : ["EMAIL_USER"]),
+      ...(settings.password ? [] : ["EMAIL_PASSWORD"])
+    ];
+    if (missing.length === 0) return new SmtpTransport(settings);
+    apiLogger.error("email.misconfigured", { provider, missing });
   } else if (provider !== "log") {
     apiLogger.error("email.misconfigured", { provider, reason: "unknown EMAIL_PROVIDER" });
   }
