@@ -24,6 +24,7 @@ import type {
 } from "@growpath/contracts";
 import type { Pool } from "pg";
 import { DATABASE_POOL } from "../database/database.module";
+import { EmailService } from "../email/email.service";
 
 const toSummary = (record: UserSummaryRecord): UserSummary => ({
   id: record.id,
@@ -53,7 +54,10 @@ const toDetail = (record: UserDetailRecord): UserDetail => ({
  */
 @Injectable()
 export class UserService {
-  constructor(@Inject(DATABASE_POOL) private readonly pool: Pool) {}
+  constructor(
+    @Inject(DATABASE_POOL) private readonly pool: Pool,
+    private readonly email: EmailService
+  ) {}
 
   async list(request: UserPageRequest): Promise<Page<UserSummary>> {
     const page = await withRequestTenantScope(this.pool, (client) =>
@@ -108,15 +112,16 @@ export class UserService {
     invitedBy: string | null
   ): Promise<IssuedUserInvitation> {
     try {
-      return await withRequestTenantScope(this.pool, async (client) => {
+      const issued = await withRequestTenantScope(this.pool, async (client) => {
         // The tenant comes from the scoped session; `issueInvitation` predates
         // that mechanism and still takes it as an argument, so it is read back
         // from the context the session was opened with rather than from
-        // anything the caller sent.
-        const tenant = await client.query<{ id: string }>(
-          "SELECT current_tenant_id() AS id"
+        // anything the caller sent. The name is for the email.
+        const tenant = await client.query<{ id: string; name: string | null }>(
+          "SELECT current_tenant_id() AS id, (SELECT name FROM tenant WHERE id = current_tenant_id()) AS name"
         );
         const tenantId = tenant.rows[0].id;
+        const workspaceName = tenant.rows[0].name;
 
         const invitation = await issueInvitation(client, {
           tenantId,
@@ -140,11 +145,25 @@ export class UserService {
         }
 
         return {
-          user: toSummary(user),
-          token: invitation.token,
-          expiresAt: invitation.expiresAt.toISOString()
+          workspaceName,
+          response: {
+            user: toSummary(user),
+            token: invitation.token,
+            expiresAt: invitation.expiresAt.toISOString()
+          }
         };
       });
+
+      // After the commit, so a message never announces an invitation that a
+      // rolled-back transaction took away again.
+      this.email.sendInvitation({
+        to: input.email,
+        token: issued.response.token,
+        expiresAt: issued.response.expiresAt,
+        workspaceName: issued.workspaceName,
+        name: input.name
+      });
+      return issued.response;
     } catch (err) {
       if (err instanceof EmailAlreadyInUseError) {
         // 409, like the two below: the address identifies one person across the

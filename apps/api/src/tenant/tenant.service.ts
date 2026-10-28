@@ -25,6 +25,7 @@ import {
 } from "@growpath/contracts";
 import type { Pool } from "pg";
 import { DATABASE_POOL } from "../database/database.module";
+import { EmailService } from "../email/email.service";
 
 /**
  * Why the reads here are scoped rather than platform-wide.
@@ -103,7 +104,10 @@ function activityTarget(entry: AuditEntry): string {
 
 @Injectable()
 export class TenantService {
-  constructor(@Inject(DATABASE_POOL) private readonly pool: Pool) {}
+  constructor(
+    @Inject(DATABASE_POOL) private readonly pool: Pool,
+    private readonly email: EmailService
+  ) {}
 
   /**
    * The caller's own tenant.
@@ -161,6 +165,15 @@ export class TenantService {
           // and unhelpful now that there is a real person behind it.
           provisionTenantOnClient(client, input, actor)
       );
+
+      // After the commit. A placeholder `admin@<slug>.local` is skipped by the
+      // email service — it reaches nobody.
+      this.email.sendInvitation({
+        to: result.adminUser.email,
+        token: result.invitation.token,
+        expiresAt: result.invitation.expiresAt,
+        workspaceName: result.tenant.name
+      });
 
       return {
         ...result,

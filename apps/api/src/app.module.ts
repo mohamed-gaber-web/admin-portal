@@ -25,6 +25,7 @@ import { RateLimitGuard } from "./common/rate-limit.guard";
 import { UnhandledExceptionFilter } from "./common/unhandled-exception.filter";
 import { RateLimitService } from "./common/rate-limit.service";
 import { DatabaseModule } from "./database/database.module";
+import { EmailService } from "./email/email.service";
 import { HealthController } from "./health/health.controller";
 import { HealthService } from "./health/health.service";
 import { CorrelationMiddleware } from "./observability/correlation.middleware";
@@ -63,6 +64,7 @@ import { TenantService } from "./tenant/tenant.service";
     AuthService,
     CompanyService,
     ConnectionService,
+    EmailService,
     D365TokenClient,
     D365ProxyService,
     D365TokenCache,

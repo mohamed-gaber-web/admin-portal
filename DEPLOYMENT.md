@@ -152,6 +152,82 @@ Open the link, set a password, and you can sign in and provision tenants.
 Do **not** run `pnpm seed` against production. It inserts the Acme/Globex demo
 tenants and their users.
 
+## 5. Email (invitations and password resets)
+
+The API emails a link whenever one is issued: **forgot password** (portal and
+mobile), **inviting a user**, **creating a tenant** (its first admin), an
+operator **re-sending an admin invitation**, an operator **issuing a reset
+link**, and **adding an operator**. Sending happens after the change is saved
+and never fails the request — the portal keeps showing the link as a fallback.
+
+Without these variables nothing is sent and the API logs `email.disabled` at
+startup. Set them on the **API service** in Railway, then redeploy.
+
+| Variable | Value |
+| --- | --- |
+| `PORTAL_URL` | The portal's public address, e.g. `https://<your>.vercel.app` — every link points here |
+| `EMAIL_PROVIDER` | `graph` (Microsoft 365) or `acs` (Azure Communication Services) |
+| `EMAIL_FROM` | The sending address |
+| `EMAIL_FROM_NAME` | Optional, defaults to `Grow Path` |
+
+### Option A — Microsoft 365 mailbox (`graph`)
+
+Use this when the company already has Microsoft 365. No new Azure resource.
+
+1. Create the mailbox that sends, e.g. a **shared mailbox** `noreply@growpath.net`
+   (Exchange admin center → Recipients → Mailboxes → Add a shared mailbox). A
+   shared mailbox needs no licence.
+2. Entra admin center → **App registrations → New registration**, e.g.
+   `Grow Path Mail`. Single tenant. No redirect URI.
+3. In the app: **API permissions → Add a permission → Microsoft Graph →
+   Application permissions → `Mail.Send`**, then **Grant admin consent**.
+4. **Certificates & secrets → New client secret.** Copy the *Value* now; it is
+   not shown again. Note its expiry date — mail stops when it expires.
+5. Recommended: limit the app to that one mailbox, otherwise `Mail.Send` lets it
+   send as anyone in the organisation. In Exchange Online PowerShell:
+   ```powershell
+   New-DistributionGroup -Name "GrowPathMailSenders" -Type Security -Members noreply@growpath.net
+   New-ApplicationAccessPolicy -AppId <client-id> -PolicyScopeGroupId GrowPathMailSenders -AccessRight RestrictAccess -Description "Grow Path may send only as noreply"
+   ```
+6. Railway variables:
+   ```
+   EMAIL_PROVIDER=graph
+   EMAIL_FROM=noreply@growpath.net
+   EMAIL_GRAPH_TENANT_ID=<Directory (tenant) ID from the app's Overview>
+   EMAIL_GRAPH_CLIENT_ID=<Application (client) ID>
+   EMAIL_GRAPH_CLIENT_SECRET=<the secret Value>
+   PORTAL_URL=https://<your>.vercel.app
+   ```
+
+### Option B — Azure Communication Services (`acs`)
+
+Use this without Microsoft 365, or for high volume.
+
+1. Azure portal → **Create a resource → Email Communication Services**. Then
+   **Provision domains**: either the free Azure-managed domain
+   (`xxxx.azurecomm.net`, works immediately) or **your own domain**, which needs
+   the TXT, SPF and DKIM records it shows added at your DNS provider.
+2. **Create a resource → Communication Services**. In it, **Email → Domains →
+   Connect domain** and pick the domain from step 1.
+3. In the email domain, **MailFrom addresses** shows the sender, e.g.
+   `DoNotReply@xxxx.azurecomm.net` (add `noreply@growpath.net` on a custom domain).
+4. Communication Services resource → **Keys** → copy the **Connection string**.
+5. Railway variables:
+   ```
+   EMAIL_PROVIDER=acs
+   EMAIL_FROM=DoNotReply@xxxx.azurecomm.net
+   EMAIL_ACS_CONNECTION_STRING=endpoint=https://<resource>.communication.azure.com/;accesskey=<key>
+   PORTAL_URL=https://<your>.vercel.app
+   ```
+
+### Checking it works
+
+After the redeploy the API logs `email.configured` with the provider name.
+Use **Forgot password** on the sign-in page with a real account: the logs show
+`email.sent`, or `email.failed` with the provider's status — `401`/`403` from
+Graph means the permission or admin consent is missing, `404` means
+`EMAIL_FROM` is not a mailbox in that tenant. Links are never logged.
+
 ## Order of operations
 
 1. Postgres service on Railway.

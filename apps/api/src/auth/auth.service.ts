@@ -50,11 +50,15 @@ import type {
 import { apiLogger } from "../observability/logger";
 import type { Pool } from "pg";
 import { DATABASE_POOL } from "../database/database.module";
+import { EmailService } from "../email/email.service";
 import { issueAccessToken, issueMfaChallenge, verifyMfaChallenge } from "./tokens";
 
 @Injectable()
 export class AuthService {
-  constructor(@Inject(DATABASE_POOL) private readonly pool: Pool) {}
+  constructor(
+    @Inject(DATABASE_POOL) private readonly pool: Pool,
+    private readonly email: EmailService
+  ) {}
 
   async acceptInvitation(
     input: AcceptInvitationInput,
@@ -354,13 +358,21 @@ export class AuthService {
     );
 
     if (issued) {
-      // Standing in for the email that US-0xx will send. The token itself is
-      // never logged — it is a credential, and the logger would redact the
-      // field anyway, but not putting it there is the actual defence.
+      // The token itself is never logged — it is a credential, and the logger
+      // would redact the field anyway, but not putting it there is the actual
+      // defence.
       apiLogger.info("password_reset.link_issued", {
         tenantId: issued.tenantId,
         userId: issued.userId,
         expiresAt: issued.expiresAt.toISOString()
+      });
+      // Not awaited: an address with an account must not answer slower than
+      // one without, or the response time becomes the enumeration oracle the
+      // uniform body works to remove.
+      this.email.sendPasswordReset({
+        to: issued.email,
+        token: issued.token,
+        expiresAt: issued.expiresAt
       });
     }
 

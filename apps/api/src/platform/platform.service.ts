@@ -64,6 +64,7 @@ import {
 } from "@growpath/contracts";
 import type { Pool } from "pg";
 import { DATABASE_POOL } from "../database/database.module";
+import { EmailService } from "../email/email.service";
 
 /**
  * Reads and writes that span every tenant.
@@ -191,7 +192,10 @@ export class SelfSuspensionError extends Error {
 
 @Injectable()
 export class PlatformService {
-  constructor(@Inject(DATABASE_POOL) private readonly pool: Pool) {}
+  constructor(
+    @Inject(DATABASE_POOL) private readonly pool: Pool,
+    private readonly email: EmailService
+  ) {}
 
   /** Every tenant on the installation, except the operators' own. */
   async listTenants(request: TenantPageRequest): Promise<Page<TenantSummary>> {
@@ -305,15 +309,15 @@ export class PlatformService {
     input: InvitePlatformUserInput,
     actor: AuditActor
   ): Promise<IssuedUserInvitation | null> {
-    return withoutTenantScope(
+    const issued = await withoutTenantScope(
       this.pool,
       {
         reason:
           "Platform administration: inviting a user into a named tenant, which by definition is not the operator's own."
       },
       async (client) => {
-        const tenant = await client.query<{ id: string }>(
-          "SELECT id FROM tenant WHERE id = $1",
+        const tenant = await client.query<{ id: string; name: string }>(
+          "SELECT id, name FROM tenant WHERE id = $1",
           [input.tenantId]
         );
         if (!tenant.rows[0]) return null;
@@ -352,12 +356,25 @@ export class PlatformService {
         }
 
         return {
-          user: toUserSummary(user),
-          token: invitation.token,
-          expiresAt: invitation.expiresAt.toISOString()
+          workspaceName: tenant.rows[0].name,
+          response: {
+            user: toUserSummary(user),
+            token: invitation.token,
+            expiresAt: invitation.expiresAt.toISOString()
+          }
         };
       }
     );
+    if (!issued) return null;
+
+    this.email.sendInvitation({
+      to: input.email,
+      token: issued.response.token,
+      expiresAt: issued.response.expiresAt,
+      workspaceName: issued.workspaceName,
+      name: input.name
+    });
+    return issued.response;
   }
 
   async findUser(id: string): Promise<UserDetail | null> {
@@ -418,6 +435,14 @@ export class PlatformService {
       (client) => issuePasswordResetForUser(client, { userId: id, actor })
     );
     if (!issued) return null;
+
+    // Emailed as well as returned: the operator may be on the phone with the
+    // person, or the person may simply be able to receive mail.
+    this.email.sendPasswordReset({
+      to: issued.email,
+      token: issued.token,
+      expiresAt: issued.expiresAt
+    });
 
     return {
       userId: issued.userId,
@@ -483,7 +508,7 @@ export class PlatformService {
     id: string,
     actor: AuditActor
   ): Promise<ReissuedInvitation | null> {
-    return withoutTenantScope(
+    const reissued = await withoutTenantScope(
       this.pool,
       {
         reason:
@@ -496,16 +521,33 @@ export class PlatformService {
         });
         if (!result) return null;
 
+        const tenant = await client.query<{ name: string }>(
+          "SELECT name FROM tenant WHERE id = $1",
+          [id]
+        );
+
         return {
-          email: result.email,
-          invitation: {
-            id: result.invitation.id,
-            expiresAt: result.invitation.expiresAt.toISOString(),
-            token: result.invitation.token
+          workspaceName: tenant.rows[0]?.name ?? null,
+          response: {
+            email: result.email,
+            invitation: {
+              id: result.invitation.id,
+              expiresAt: result.invitation.expiresAt.toISOString(),
+              token: result.invitation.token
+            }
           }
         };
       }
     );
+    if (!reissued) return null;
+
+    this.email.sendInvitation({
+      to: reissued.response.email,
+      token: reissued.response.invitation.token,
+      expiresAt: reissued.response.invitation.expiresAt,
+      workspaceName: reissued.workspaceName
+    });
+    return reissued.response;
   }
 
   /**
@@ -737,6 +779,16 @@ export class PlatformService {
       },
       (client) => ensurePlatformAdmin(client, { ...input, actor })
     );
+
+    if (result.invitation) {
+      this.email.sendInvitation({
+        to: input.email,
+        token: result.invitation.token,
+        expiresAt: result.invitation.expiresAt,
+        workspaceName: "Grow Path Admin",
+        name: input.name
+      });
+    }
 
     return {
       user: { id: result.userId, email: input.email },
