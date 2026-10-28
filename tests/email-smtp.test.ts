@@ -144,6 +144,13 @@ describe("email - SMTP", () => {
     expect(mail.data).toMatch(/From: "?Grow Path"? <mailer@growpath\.example>/);
   });
 
+  it("leaves spaces in a non-Gmail password alone", async () => {
+    // The stub's password contains spaces, and only the exact value signs in.
+    await expect(
+      transportFromEnv(env()).send({ to: "a@example.com", subject: "x", text: "x", html: "x" })
+    ).resolves.toBeUndefined();
+  });
+
   it("reports a wrong password by its SMTP code, without the password", async () => {
     const send = transportFromEnv(env({ EMAIL_PASSWORD: "wrong-password" })).send({
       to: "person@example.com",

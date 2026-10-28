@@ -308,7 +308,7 @@ class LogTransport implements EmailTransport {
     // The recipient and subject, never the body: the body holds a link that is
     // a credential until it is redeemed.
     apiLogger.info("email.not_sent", {
-      reason: "EMAIL_PROVIDER is not configured; set it to graph or acs to deliver mail.",
+      reason: "No email provider is configured; set EMAIL_HOST (SMTP) or EMAIL_PROVIDER=graph|acs to deliver mail.",
       to: message.to,
       subject: message.subject
     });
@@ -357,7 +357,12 @@ export function transportFromEnv(env: NodeJS.ProcessEnv = process.env): EmailTra
       // for the odd server that runs implicit TLS elsewhere.
       secure: env.EMAIL_SECURE ? env.EMAIL_SECURE.trim().toLowerCase() === "true" : port === 465,
       user,
-      password: env.EMAIL_PASSWORD ?? "",
+      // Google shows an app password as four groups of four for readability;
+      // the password itself has no spaces, and pasting it as shown is the
+      // usual way it ends up wrong.
+      password: /(^|\.)gmail\.com$/i.test(env.EMAIL_HOST?.trim() ?? "")
+        ? (env.EMAIL_PASSWORD ?? "").replace(/\s+/g, "")
+        : env.EMAIL_PASSWORD ?? "",
       // Most SMTP servers refuse a From that is not the signed-in account.
       sender: sender || user,
       senderName
