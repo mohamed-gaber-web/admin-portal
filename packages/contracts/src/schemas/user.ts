@@ -68,13 +68,68 @@ export type UserSummary = z.infer<typeof userSummarySchema>;
 export const userPageSchema = pageSchema(userSummarySchema);
 
 /** Everything the user detail screen shows. */
+/**
+ * A D365 warehouse a user works in: the company it belongs to and its id there.
+ *
+ * `dataAreaId` and `companyName` are derived by the server from the company,
+ * never accepted from a caller — see `userWarehouseInputSchema`.
+ */
+export const userWarehouseSchema = z
+  .object({
+    companyId: z.string().uuid(),
+    companyName: z.string(),
+    dataAreaId: z.string(),
+    /** D365 `WarehouseId`, e.g. `11`. */
+    warehouseId: z.string(),
+    /** D365 `WarehouseName`, for display. */
+    name: z.string()
+  })
+  .strict();
+
+export type UserWarehouse = z.infer<typeof userWarehouseSchema>;
+
+/** What a caller sends to assign one. The rest is resolved from the company. */
+export const userWarehouseInputSchema = z
+  .object({
+    companyId: z.string().uuid(),
+    warehouseId: z.string().trim().min(1).max(64),
+    name: z.string().trim().min(1).max(200)
+  })
+  .strict();
+
+export type UserWarehouseInput = z.infer<typeof userWarehouseInputSchema>;
+
+/** `PUT /users/:id/warehouse`. Null clears it. */
+export const setUserWarehouseSchema = z
+  .object({ defaultWarehouse: userWarehouseInputSchema.nullable() })
+  .strict();
+
+export type SetUserWarehouseInput = z.infer<typeof setUserWarehouseSchema>;
+
+/**
+ * `GET /me`: what the signed-in user needs to know about themselves.
+ *
+ * Its own route, readable by any signed-in user, because a warehouse operator
+ * holds no `user.read` and still needs their own warehouse.
+ */
+export const meSchema = z
+  .object({
+    userId: z.string().uuid(),
+    defaultWarehouse: userWarehouseSchema.nullable()
+  })
+  .strict();
+
+export type Me = z.infer<typeof meSchema>;
+
 export const userDetailSchema = userSummarySchema
   .extend({
     /** Every role the user holds, by name. A user may hold several. */
     roles: z.array(z.string()),
     createdAt: z.string(),
     /** Who issued the invitation, or null for a tenant's first admin. */
-    invitedBy: z.string().nullable()
+    invitedBy: z.string().nullable(),
+    /** The warehouse the mobile app starts this user on. */
+    defaultWarehouse: userWarehouseSchema.nullable()
   })
   .strict();
 
@@ -118,7 +173,9 @@ export const inviteUserSchema = z
     email: z.string().email(),
     role: z.string().min(1),
     /** Optional: the invitation is addressed to an email, not to a name. */
-    name: z.string().min(1).max(200).optional()
+    name: z.string().min(1).max(200).optional(),
+    /** Optional: the warehouse the mobile app starts them on. */
+    defaultWarehouse: userWarehouseInputSchema.optional()
   })
   .strict();
 

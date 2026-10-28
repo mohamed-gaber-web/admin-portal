@@ -835,6 +835,21 @@ export const en = {
   "mobileConfig.failed": "The configuration could not be saved.",
   "mobileConfig.updatedAt": "Last changed {date}",
 
+  "warehouse.label": "Warehouse",
+  "warehouse.companyLabel": "Company",
+  "warehouse.none": "No default warehouse",
+  "warehouse.hint": "The mobile app starts this user on this warehouse. They can still pick another.",
+  "warehouse.loading": "Loading warehouses from Dynamics…",
+  "warehouse.noCompanies": "This workspace has no companies yet, so there are no warehouses to choose from.",
+  "warehouse.companiesFailed": "The companies could not be loaded.",
+  "warehouse.loadFailed": "The warehouses could not be loaded from Dynamics. Check the ERP connection.",
+  "warehouse.cardTitle": "Warehouse",
+  "warehouse.cardSubtitle": "Where this person works. The mobile app selects it for them after they sign in.",
+  "warehouse.current": "Current:",
+  "warehouse.save": "Save warehouse",
+  "warehouse.saved": "Warehouse saved. It applies the next time they sign in to the app.",
+  "warehouse.saveFailed": "The warehouse could not be saved.",
+
   "mobileLogo.title": "Company logo",
   "mobileLogo.subtitle":
     "Shown in the mobile app beside the Grow Path logo. Without one, the app shows Grow Path alone.",

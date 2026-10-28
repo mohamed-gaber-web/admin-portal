@@ -816,6 +816,21 @@ export const ar: Messages = {
   "mobileConfig.failed": "تعذّر حفظ الإعدادات.",
   "mobileConfig.updatedAt": "آخر تغيير {date}",
 
+  "warehouse.label": "المستودع",
+  "warehouse.companyLabel": "الشركة",
+  "warehouse.none": "بدون مستودع افتراضي",
+  "warehouse.hint": "يبدأ تطبيق الجوال هذا المستخدم على هذا المستودع، ويمكنه اختيار مستودع آخر.",
+  "warehouse.loading": "جارٍ تحميل المستودعات من Dynamics…",
+  "warehouse.noCompanies": "لا توجد شركات في مساحة العمل هذه بعد، لذا لا توجد مستودعات للاختيار.",
+  "warehouse.companiesFailed": "تعذّر تحميل الشركات.",
+  "warehouse.loadFailed": "تعذّر تحميل المستودعات من Dynamics. تحقّق من اتصال نظام ERP.",
+  "warehouse.cardTitle": "المستودع",
+  "warehouse.cardSubtitle": "مكان عمل هذا الشخص. يختاره تطبيق الجوال له بعد تسجيل الدخول.",
+  "warehouse.current": "الحالي:",
+  "warehouse.save": "حفظ المستودع",
+  "warehouse.saved": "حُفظ المستودع. يُطبَّق عند تسجيل الدخول التالي إلى التطبيق.",
+  "warehouse.saveFailed": "تعذّر حفظ المستودع.",
+
   "mobileLogo.title": "شعار الشركة",
   "mobileLogo.subtitle":
     "يظهر في تطبيق الجوال بجانب شعار Grow Path. وبدونه يعرض التطبيق شعار Grow Path وحده.",

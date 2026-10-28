@@ -20,7 +20,9 @@ import {
   ModalComponent,
   SelectDirective
 } from "@shared/ui";
+import type { UserWarehouseInput } from "@growpath/contracts";
 import { UsersService, type IssuedUserInvitation } from "../users.service";
+import { WarehousePickerComponent } from "./warehouse-picker.component";
 
 /**
  * Inviting someone.
@@ -44,7 +46,8 @@ import { UsersService, type IssuedUserInvitation } from "../users.service";
     IconComponent,
     InputDirective,
     ModalComponent,
-    SelectDirective
+    SelectDirective,
+    WarehousePickerComponent
   ],
   template: `
     <ui-modal
@@ -120,6 +123,12 @@ import { UsersService, type IssuedUserInvitation } from "../users.service";
               }
             </select>
           </ui-field>
+
+          <app-warehouse-picker
+            idPrefix="invite-warehouse"
+            [disabled]="submitting()"
+            (selectionChange)="warehouse.set($event)"
+          />
         </form>
       }
 
@@ -155,6 +164,7 @@ export class InviteUserDialogComponent {
   protected readonly failure = signal<string | null>(null);
   protected readonly issued = signal<IssuedUserInvitation | null>(null);
   protected readonly copied = signal(false);
+  protected readonly warehouse = signal<UserWarehouseInput | null>(null);
 
   protected readonly form = inject(FormBuilder).nonNullable.group({
     email: ["", [Validators.required, Validators.email]],
@@ -195,7 +205,7 @@ export class InviteUserDialogComponent {
     const { email, role } = this.form.getRawValue();
     this.submitting.set(true);
 
-    this.users.invite(email, role).subscribe({
+    this.users.invite(email, role, this.warehouse()).subscribe({
       next: (result) => {
         this.submitting.set(false);
         this.issued.set(result);

@@ -68,6 +68,13 @@ export const API_ROUTES = {
   userStatus: "/users/:id/status",
   /** Replacing the set of roles a user holds. */
   userRoles: "/users/:id/roles",
+  /** Setting or clearing the D365 warehouse a user starts on in the app. */
+  userWarehouse: "/users/:id/warehouse",
+  /**
+   * The signed-in user's own details. No id in the path: it comes from the
+   * token, so there is nobody else this route could describe.
+   */
+  me: "/me",
   /**
    * Issuing an invitation to join the caller's tenant.
    *

@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable } from "@nestjs/common";
+import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
   EmailAlreadyInUseError,
   findUserDetail,
@@ -7,6 +7,10 @@ import {
   setUserName,
   setUserRoles,
   setUserStatus,
+  setUserWarehouse,
+  findOwnWarehouse,
+  WarehouseCompanyNotFoundError,
+  type UserWarehouse as UserWarehouseRecord,
   SeatLimitReachedError,
   UserAlreadyActiveError,
   withRequestTenantScope,
@@ -18,9 +22,12 @@ import {
 import type {
   InviteUserInput,
   IssuedUserInvitation,
+  Me,
   Page,
   UserDetail,
-  UserSummary
+  UserSummary,
+  UserWarehouse,
+  UserWarehouseInput
 } from "@growpath/contracts";
 import type { Pool } from "pg";
 import { DATABASE_POOL } from "../database/database.module";
@@ -40,8 +47,12 @@ const toDetail = (record: UserDetailRecord): UserDetail => ({
   ...toSummary(record),
   roles: record.roles,
   createdAt: record.createdAt.toISOString(),
-  invitedBy: record.invitedBy
+  invitedBy: record.invitedBy,
+  defaultWarehouse: toWarehouse(record.defaultWarehouse)
 });
+
+const toWarehouse = (record: UserWarehouseRecord | null): UserWarehouse | null =>
+  record ? { ...record } : null;
 
 /**
  * Users within the caller's tenant.
@@ -96,6 +107,36 @@ export class UserService {
   }
 
   /**
+   * Sets or clears the warehouse a user starts on in the app.
+   *
+   * Null for a user this tenant cannot see, and for a company it cannot see:
+   * both are the same 404, so another tenant's company id confirms nothing.
+   */
+  async setWarehouse(
+    id: string,
+    warehouse: UserWarehouseInput | null,
+    actor: AuditActor
+  ): Promise<UserDetail | null> {
+    try {
+      const record = await withRequestTenantScope(this.pool, (client) =>
+        setUserWarehouse(client, id, warehouse, actor)
+      );
+      return record ? toDetail(record) : null;
+    } catch (err) {
+      if (err instanceof WarehouseCompanyNotFoundError) return null;
+      throw err;
+    }
+  }
+
+  /** The signed-in user's own details, from the id on their verified token. */
+  async me(userId: string): Promise<Me> {
+    const warehouse = await withRequestTenantScope(this.pool, (client) =>
+      findOwnWarehouse(client, userId)
+    );
+    return { userId, defaultWarehouse: toWarehouse(warehouse) };
+  }
+
+  /**
    * Invites someone into the caller's tenant.
    *
    * The whole thing runs in one scoped transaction: an invitation that exists
@@ -136,6 +177,12 @@ export class UserService {
 
         await setUserRoles(client, invitation.userId, [input.role], actor);
 
+        // In the same transaction: an unknown company rolls the whole
+        // invitation back rather than leaving a user half set up.
+        if (input.defaultWarehouse) {
+          await setUserWarehouse(client, invitation.userId, input.defaultWarehouse, actor);
+        }
+
         const user = await findUserDetail(client, invitation.userId);
         if (!user) {
           // Unreachable: the row was just created in this transaction. Thrown
@@ -165,6 +212,9 @@ export class UserService {
       });
       return issued.response;
     } catch (err) {
+      if (err instanceof WarehouseCompanyNotFoundError) {
+        throw new NotFoundException({ message: err.message });
+      }
       if (err instanceof EmailAlreadyInUseError) {
         // 409, like the two below: the address identifies one person across the
         // installation, and the tenant that holds it is one this administrator

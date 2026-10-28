@@ -18,12 +18,15 @@ import type { Request } from "express";
 import {
   API_ROUTES,
   inviteUserSchema,
+  setUserWarehouseSchema,
   updateUserRolesSchema,
   updateUserStatusSchema,
   userQuerySchema,
   type InviteUserInput,
   type IssuedUserInvitation,
+  type Me,
   type Page,
+  type SetUserWarehouseInput,
   type UpdateUserRolesInput,
   type UpdateUserStatusInput,
   type UserDetail,
@@ -153,6 +156,52 @@ export class UserController {
       throw new NotFoundException({ message: "User not found." });
     }
     return user;
+  }
+
+  /**
+   * Sets or clears the D365 warehouse the mobile app starts this user on.
+   *
+   * `user.write`, like roles. A company this tenant cannot see is the same 404
+   * as a user it cannot see.
+   */
+  @Put(API_ROUTES.userWarehouse)
+  @RequiresPermission("user.write")
+  async setWarehouse(
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(setUserWarehouseSchema)) dto: SetUserWarehouseInput,
+    @Req() request: Request,
+    @Ip() ip: string
+  ): Promise<UserDetail> {
+    const user = await this.users.setWarehouse(id, dto.defaultWarehouse, actorFrom(request, ip));
+    if (!user) {
+      throw new NotFoundException({ message: "User not found." });
+    }
+    return user;
+  }
+}
+
+/**
+ * The signed-in user's own details.
+ *
+ * A controller of its own because it carries no permission requirement: every
+ * signed-in user may read themselves, and a warehouse operator holds no
+ * `user.read`. Mixing it into the controller above would put one route under a
+ * `PermissionGuard` it must not have.
+ */
+@Controller()
+@UseGuards(AccessTokenGuard)
+export class MeController {
+  constructor(private readonly users: UserService) {}
+
+  @Get(API_ROUTES.me)
+  async me(@Req() request: Request): Promise<Me> {
+    const userId = request.auth?.userId;
+    if (!userId) {
+      // AccessTokenGuard guarantees a verified token; one without a subject is
+      // not a session this route can describe.
+      throw new NotFoundException({ message: "User not found." });
+    }
+    return this.users.me(userId);
   }
 }
 

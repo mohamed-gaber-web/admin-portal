@@ -37,7 +37,50 @@ export interface UserDetail extends UserSummary {
   roles: string[];
   createdAt: Date;
   invitedBy: string | null;
+  /** The D365 warehouse the mobile app starts this user on. Null when none. */
+  defaultWarehouse: UserWarehouse | null;
 }
+
+/** A D365 warehouse, by the company it belongs to and its id there. */
+export interface UserWarehouse {
+  companyId: string;
+  companyName: string;
+  /** The company's D365 legal entity, derived from the company row, never sent. */
+  dataAreaId: string;
+  warehouseId: string;
+  name: string;
+}
+
+interface WarehouseColumns {
+  wh_company_id: string | null;
+  wh_company_name: string | null;
+  wh_data_area_id: string | null;
+  default_warehouse_id: string | null;
+  default_warehouse_name: string | null;
+}
+
+/**
+ * The warehouse columns, joined to the company that gives them meaning.
+ *
+ * A LEFT JOIN, and the company must still be visible: a warehouse whose company
+ * was removed reads as no warehouse at all, rather than an id the app would act
+ * on in a legal entity that no longer exists.
+ */
+const WAREHOUSE_SELECT = `
+  wc.id AS wh_company_id, wc.name AS wh_company_name, wc.data_area_id AS wh_data_area_id,
+  u.default_warehouse_id, u.default_warehouse_name`;
+const WAREHOUSE_JOIN = `LEFT JOIN company wc ON wc.id = u.default_warehouse_company_id`;
+
+const toWarehouse = (row: WarehouseColumns): UserWarehouse | null =>
+  row.wh_company_id && row.default_warehouse_id
+    ? {
+        companyId: row.wh_company_id,
+        companyName: row.wh_company_name ?? "",
+        dataAreaId: row.wh_data_area_id ?? "",
+        warehouseId: row.default_warehouse_id,
+        name: row.default_warehouse_name ?? ""
+      }
+    : null;
 
 /**
  * The column stores `disabled`; every screen says `suspended`.
@@ -185,7 +228,7 @@ export async function listUsers(
   return toPage(res.rows, request, toSummary);
 }
 
-interface UserDetailRow extends Omit<UserRow, "total_count"> {
+interface UserDetailRow extends Omit<UserRow, "total_count">, WarehouseColumns {
   invited_by: string | null;
 }
 
@@ -208,13 +251,15 @@ export async function findUserDetail(
                JOIN "user" inviter ON inviter.id = inv.invited_by
               WHERE inv.user_id = u.id
               ORDER BY inv.created_at DESC
-              LIMIT 1) AS invited_by
+              LIMIT 1) AS invited_by,
+            ${WAREHOUSE_SELECT}
      FROM "user" u
      JOIN tenant t ON t.id = u.tenant_id
+     ${WAREHOUSE_JOIN}
      LEFT JOIN user_role ur ON ur.user_id = u.id
      LEFT JOIN role r ON r.id = ur.role_id
      WHERE u.id = $1
-     GROUP BY u.id, t.slug`,
+     GROUP BY u.id, t.slug, wc.id`,
     [userId]
   );
 
@@ -225,8 +270,114 @@ export async function findUserDetail(
     ...toSummary({ ...row, total_count: "1" }),
     roles: row.roles,
     createdAt: row.created_at,
-    invitedBy: row.invited_by
+    invitedBy: row.invited_by,
+    defaultWarehouse: toWarehouse(row)
   };
+}
+
+/** The warehouse to assign: a company of this tenant, and a D365 warehouse in it. */
+export interface SetUserWarehouseInput {
+  companyId: string;
+  warehouseId: string;
+  name: string;
+}
+
+/** Raised when the company named is not one this tenant can see. */
+export class WarehouseCompanyNotFoundError extends Error {
+  constructor() {
+    super("No such company in this workspace.");
+    this.name = "WarehouseCompanyNotFoundError";
+  }
+}
+
+/**
+ * Sets, replaces or clears (null) the warehouse a user starts on in the app.
+ *
+ * Null for a user this session cannot see. The company is looked up through
+ * the same session, so under row level security another tenant's company id
+ * is simply not found — `WarehouseCompanyNotFoundError`, which the API turns
+ * into the same 404 an unknown user gets. That check matters because the
+ * column carries no foreign key, and a foreign key would not respect RLS anyway.
+ *
+ * The warehouse id itself is not checked against Dynamics: that would make
+ * saving a user depend on the ERP being reachable, and the picker the portal
+ * offers is already read from it.
+ */
+export async function setUserWarehouse(
+  db: Queryable,
+  userId: string,
+  input: SetUserWarehouseInput | null,
+  actor: AuditActor
+): Promise<UserDetail | null> {
+  const before = await findUserDetail(db, userId);
+  if (!before) return null;
+
+  if (input) {
+    if (!isUuid(input.companyId)) throw new WarehouseCompanyNotFoundError();
+    const company = await db.query<{ id: string }>("SELECT id FROM company WHERE id = $1", [
+      input.companyId
+    ]);
+    if (!company.rows[0]) throw new WarehouseCompanyNotFoundError();
+  }
+
+  await db.query(
+    `UPDATE "user"
+        SET default_warehouse_company_id = $2,
+            default_warehouse_id = $3,
+            default_warehouse_name = $4,
+            updated_at = now()
+      WHERE id = $1`,
+    [userId, input?.companyId ?? null, input?.warehouseId ?? null, input?.name ?? null]
+  );
+
+  const after = await findUserDetail(db, userId);
+  if (!after) return null;
+
+  const audited = (warehouse: UserWarehouse | null) => ({
+    warehouseCompanyId: warehouse?.companyId ?? null,
+    warehouseId: warehouse?.warehouseId ?? null
+  });
+  if (
+    before.defaultWarehouse?.companyId !== after.defaultWarehouse?.companyId ||
+    before.defaultWarehouse?.warehouseId !== after.defaultWarehouse?.warehouseId
+  ) {
+    const tenant = await db.query<{ tenant_id: string }>(
+      `SELECT tenant_id FROM "user" WHERE id = $1`,
+      [userId]
+    );
+    await recordAuditEntry(db, {
+      tenantId: tenant.rows[0].tenant_id,
+      action: "user.warehouse_changed",
+      entityType: "user",
+      entityId: userId,
+      actor,
+      before: audited(before.defaultWarehouse),
+      after: audited(after.defaultWarehouse)
+    });
+  }
+
+  return after;
+}
+
+/**
+ * The signed-in user's own warehouse, for the mobile app.
+ *
+ * Takes the id from the verified token, never from a request, and runs inside
+ * the caller's tenant scope — so it can only ever answer about the caller.
+ */
+export async function findOwnWarehouse(
+  db: Queryable,
+  userId: string
+): Promise<UserWarehouse | null> {
+  if (!isUuid(userId)) return null;
+  const res = await db.query<WarehouseColumns>(
+    `SELECT ${WAREHOUSE_SELECT}
+       FROM "user" u
+       ${WAREHOUSE_JOIN}
+      WHERE u.id = $1`,
+    [userId]
+  );
+  return res.rows[0] ? toWarehouse(res.rows[0]) : null;
 }
 
 /** Raised when reactivating an account that has never had a credential. */

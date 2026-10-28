@@ -129,7 +129,8 @@ const toUserDetail = (record: UserDetailRecord): UserDetail => ({
   ...toUserSummary(record),
   roles: record.roles,
   createdAt: record.createdAt.toISOString(),
-  invitedBy: record.invitedBy
+  invitedBy: record.invitedBy,
+  defaultWarehouse: record.defaultWarehouse ? { ...record.defaultWarehouse } : null
 });
 
 const toActivity = (entry: AuditEntry): ActivityEntry => ({

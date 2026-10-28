@@ -1,3 +1,4 @@
+import type { UserWarehouse } from "@growpath/contracts";
 /** A user row as the users screen renders it. */
 export interface UserSummary {
   id: string;
@@ -39,6 +40,8 @@ export interface UserDetail extends UserSummary {
   createdAt: string;
   /** Who issued the invitation, or null for the tenant's first admin. */
   invitedBy: string | null;
+  /** The D365 warehouse the mobile app starts them on, or null. */
+  defaultWarehouse: UserWarehouse | null;
 }
 
 /**

@@ -32,7 +32,9 @@ import {
   type BadgeTone
 } from "@shared/ui";
 import { RelativeTimePipe } from "@shared/pipes/relative-time.pipe";
+import type { UserWarehouseInput } from "@growpath/contracts";
 import { RolesService } from "../roles/roles.service";
+import { WarehousePickerComponent } from "./components/warehouse-picker.component";
 import { UsersService } from "./users.service";
 
 /**
@@ -65,7 +67,8 @@ import { UsersService } from "./users.service";
     ErrorStateComponent,
     IconComponent,
     SelectDirective,
-    SkeletonComponent
+    SkeletonComponent,
+    WarehousePickerComponent
   ],
   template: `
     <a
@@ -272,6 +275,43 @@ import { UsersService } from "./users.service";
                   </div>
                 </div>
               </ui-card>
+
+              <ui-card class="xl:col-span-3">
+                <ui-card-header
+                  [title]="t('warehouse.cardTitle')"
+                  [description]="t('warehouse.cardSubtitle')"
+                />
+                <div class="mt-6 space-y-4">
+                  @if (user.defaultWarehouse; as current) {
+                    <p class="text-sm text-foreground">
+                      {{ t("warehouse.current") }}
+                      <span class="font-medium">
+                        {{ current.warehouseId }} — {{ current.name }}
+                      </span>
+                      <span class="text-foreground-muted">
+                        · {{ current.companyName }} ({{ current.dataAreaId }})
+                      </span>
+                    </p>
+                  }
+                  <app-warehouse-picker
+                    idPrefix="user-warehouse"
+                    [value]="user.defaultWarehouse"
+                    [disabled]="!canManage() || savingWarehouse()"
+                    (selectionChange)="warehouseChoice.set($event); warehouseTouched.set(true)"
+                  />
+                  @if (canManage()) {
+                    <button
+                      uiButton
+                      type="button"
+                      [disabled]="!warehouseTouched()"
+                      [loading]="savingWarehouse()"
+                      (click)="saveWarehouse(user)"
+                    >
+                      {{ t("warehouse.save") }}
+                    </button>
+                  }
+                </div>
+              </ui-card>
             </div>
           </div>
 
@@ -318,6 +358,10 @@ export class UserDetailPage {
   protected readonly state = signal<Async<UserDetail | null>>(asyncLoading());
   protected readonly roles = signal<readonly Role[]>([]);
   protected readonly saving = signal(false);
+  protected readonly savingWarehouse = signal(false);
+  protected readonly warehouseChoice = signal<UserWarehouseInput | null>(null);
+  /** Save stays disabled until the picker has actually changed. */
+  protected readonly warehouseTouched = signal(false);
   protected readonly failure = signal<string | null>(null);
   protected readonly pending = signal<UserAction | null>(null);
   protected readonly chosen = signal("");
@@ -481,6 +525,22 @@ export class UserDetailPage {
       error: (error: unknown) => {
         this.saving.set(false);
         this.failure.set(describeError(error, this.t, "userAction.failed"));
+      }
+    });
+  }
+
+  protected saveWarehouse(user: UserDetail): void {
+    this.savingWarehouse.set(true);
+    this.users.setWarehouse(user.id, this.warehouseChoice()).subscribe({
+      next: (updated) => {
+        this.savingWarehouse.set(false);
+        this.warehouseTouched.set(false);
+        this.state.set({ status: "success", data: updated, error: null });
+        this.toasts.success(this.t("warehouse.saved"));
+      },
+      error: (error: unknown) => {
+        this.savingWarehouse.set(false);
+        this.toasts.error(describeError(error, this.t, "warehouse.saveFailed"));
       }
     });
   }

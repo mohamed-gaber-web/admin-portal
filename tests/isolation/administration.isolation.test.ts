@@ -56,10 +56,12 @@ describe.skipIf(!hasDb)("US-013 - administration cross-tenant isolation", () => 
     api = await startApi(PORT, { DATABASE_URL: db.url, AUTH_JWT_SECRET: JWT_SECRET });
 
     tenantA = await seedTenant(pool, api.baseUrl, "acme-admin-iso", {
-      permissions: ["user.read", "user.write"]
+      permissions: ["user.read", "user.write"],
+      companies: ["Acme"]
     });
     tenantB = await seedTenant(pool, api.baseUrl, "globex-admin-iso", {
-      permissions: ["user.read", "user.write"]
+      permissions: ["user.read", "user.write"],
+      companies: ["Globex"]
     });
   }, 120_000);
 
@@ -356,6 +358,72 @@ describe.skipIf(!hasDb)("US-013 - administration cross-tenant isolation", () => 
       }
 
       expect((await get("/activity")).status).toBe(401);
+    });
+  });
+
+  describe(coversRoute("PUT /users/:id/warehouse"), () => {
+    const warehouseOf = async (userId: string, token: string) =>
+      ((await (await get(`/users/${userId}`, token)).json()) as {
+        defaultWarehouse: { warehouseId: string } | null;
+      }).defaultWarehouse;
+
+    it("cannot set another tenant's user's warehouse", async () => {
+      const res = await request("PUT", `/users/${tenantB.userId}/warehouse`, tenantA.accessToken, {
+        defaultWarehouse: { companyId: tenantA.companies[0].id, warehouseId: "11", name: "Main" }
+      });
+      expect(res.status).toBe(404);
+      expect(await warehouseOf(tenantB.userId, tenantB.accessToken)).toBeNull();
+    });
+
+    it("cannot point its own user at another tenant's company", async () => {
+      const res = await request("PUT", `/users/${tenantA.userId}/warehouse`, tenantA.accessToken, {
+        defaultWarehouse: { companyId: tenantB.companies[0].id, warehouseId: "11", name: "Main" }
+      });
+      // 404, the same as an unknown user: a 400 would confirm the company exists.
+      expect(res.status).toBe(404);
+      expect(await warehouseOf(tenantA.userId, tenantA.accessToken)).toBeNull();
+    });
+
+    it("sets its own user's warehouse in its own company", async () => {
+      const res = await request("PUT", `/users/${tenantA.userId}/warehouse`, tenantA.accessToken, {
+        defaultWarehouse: { companyId: tenantA.companies[0].id, warehouseId: "11", name: "Main" }
+      });
+      expect(res.status, await res.clone().text()).toBe(200);
+      expect(await warehouseOf(tenantA.userId, tenantA.accessToken)).toMatchObject({
+        warehouseId: "11"
+      });
+    });
+
+    it("refuses an unauthenticated request", async () => {
+      const res = await request("PUT", `/users/${tenantA.userId}/warehouse`, undefined, {
+        defaultWarehouse: null
+      });
+      expect(res.status).toBe(401);
+    });
+  });
+
+  describe(coversRoute("GET /me"), () => {
+    it("describes only the caller, never a neighbour", async () => {
+      await request("PUT", `/users/${tenantB.userId}/warehouse`, tenantB.accessToken, {
+        defaultWarehouse: { companyId: tenantB.companies[0].id, warehouseId: "GLX", name: "Globex DC" }
+      });
+
+      const mine = (await (await get("/me", tenantA.accessToken)).json()) as {
+        userId: string;
+        defaultWarehouse: { warehouseId: string; dataAreaId: string } | null;
+      };
+      expect(mine.userId).toBe(tenantA.userId);
+      expect(mine.defaultWarehouse?.warehouseId).toBe("11");
+      expect(mine.defaultWarehouse?.dataAreaId).toBe(tenantA.companies[0].dataAreaId);
+
+      const theirs = (await (await get("/me", tenantB.accessToken)).json()) as {
+        defaultWarehouse: { warehouseId: string } | null;
+      };
+      expect(theirs.defaultWarehouse?.warehouseId).toBe("GLX");
+    });
+
+    it("refuses an unauthenticated request", async () => {
+      expect((await get("/me")).status).toBe(401);
     });
   });
 });

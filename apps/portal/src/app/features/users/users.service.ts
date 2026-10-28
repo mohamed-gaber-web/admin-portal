@@ -4,6 +4,7 @@ import {
   API_ROUTES,
   issuedUserInvitationSchema,
   userDetailSchema,
+  type UserWarehouseInput,
   userPageSchema,
   type IssuedUserInvitation
 } from "@growpath/contracts";
@@ -95,11 +96,24 @@ export class UsersService {
    * invitation that is lost is reissued rather than recovered — which is why
    * the dialog shows it immediately and warns that it will not be shown again.
    */
-  invite(email: string, role: string): Observable<IssuedUserInvitation> {
+  invite(
+    email: string,
+    role: string,
+    defaultWarehouse?: UserWarehouseInput | null
+  ): Observable<IssuedUserInvitation> {
     return this.api.postValidated(
       API_ROUTES.userInvitations,
-      { email, role },
+      { email, role, ...(defaultWarehouse ? { defaultWarehouse } : {}) },
       issuedUserInvitationSchema
+    );
+  }
+
+  /** Sets or clears (null) the warehouse the mobile app starts this user on. */
+  setWarehouse(id: string, defaultWarehouse: UserWarehouseInput | null): Observable<UserDetail> {
+    return this.api.putValidated(
+      pathFor(API_ROUTES.userWarehouse, { id }),
+      { defaultWarehouse },
+      userDetailSchema
     );
   }
 }

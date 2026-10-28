@@ -19,7 +19,7 @@ import {
 import { MobileService } from "./mobile/mobile.service";
 import { RoleController } from "./role/role.controller";
 import { RoleService } from "./role/role.service";
-import { UserController } from "./user/user.controller";
+import { MeController, UserController } from "./user/user.controller";
 import { UserService } from "./user/user.service";
 import { RateLimitGuard } from "./common/rate-limit.guard";
 import { UnhandledExceptionFilter } from "./common/unhandled-exception.filter";
@@ -54,7 +54,8 @@ import { TenantService } from "./tenant/tenant.service";
     PlatformController,
     RoleController,
     TenantController,
-    UserController
+    UserController,
+    MeController
   ],
   providers: [
     // First, so an unhandled exception anywhere is logged with its cause and

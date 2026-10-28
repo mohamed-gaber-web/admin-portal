@@ -231,6 +231,19 @@ export const DECLARED_ROUTES: DeclaredRoute[] = [
     audits: ["role.assigned", "role.revoked"]
   },
   {
+    method: "PUT",
+    path: "/users/:id/warehouse",
+    visibility: "tenant-scoped",
+    note: "Sets or clears the D365 warehouse the mobile app starts a user on. The company is resolved under RLS, so another tenant's company id is the same 404 as another tenant's user. The D365 legal entity comes from the company row, never from the caller.",
+    audits: ["user.warehouse_changed"]
+  },
+  {
+    method: "GET",
+    path: "/me",
+    visibility: "tenant-scoped",
+    note: "The signed-in user's own details, for the mobile app — today their default warehouse. No permission beyond a session: a warehouse operator holds no user.read and still needs their own warehouse. The id comes from the verified token, so there is nobody else this route can describe."
+  },
+  {
     method: "GET",
     path: "/roles",
     visibility: "tenant-scoped",
