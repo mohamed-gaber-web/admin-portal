@@ -2,7 +2,9 @@ import { Controller, Delete, Get, Patch, Post, Put, Req, Res, UseGuards } from "
 import type { Request, Response } from "express";
 import { Readable } from "node:stream";
 import { API_ROUTES, D365_COMPANY_HEADER } from "@growpath/contracts";
+import { D365_DATA_READ_SCOPE } from "@growpath/db";
 import { AccessTokenGuard } from "../auth/access-token.guard";
+import { AllowServiceToken } from "../auth/allow-service-token.decorator";
 import { D365ProxyService, type ProxyOutcome } from "./d365-proxy.service";
 
 /**
@@ -36,7 +38,12 @@ export class D365ProxyController {
   constructor(private readonly proxy: D365ProxyService) {}
 
   // ── The OData surface ────────────────────────────────────────────────────
+  /**
+   * The only proxy route a service client may reach: reading OData entities.
+   * Writes and custom services (which can post documents) stay user-only.
+   */
   @Get(API_ROUTES.d365Data)
+  @AllowServiceToken(D365_DATA_READ_SCOPE)
   getData(@Req() request: ProxyableRequest, @Res() response: Response): Promise<void> {
     return this.handle(request, response);
   }

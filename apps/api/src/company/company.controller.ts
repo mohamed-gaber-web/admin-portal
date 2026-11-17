@@ -1,6 +1,8 @@
 import { Controller, Get, NotFoundException, Param, UseGuards } from "@nestjs/common";
 import { API_ROUTES, type Company } from "@growpath/contracts";
+import { D365_DATA_READ_SCOPE } from "@growpath/db";
 import { AccessTokenGuard } from "../auth/access-token.guard";
+import { AllowServiceToken } from "../auth/allow-service-token.decorator";
 import { CompanyService } from "./company.service";
 
 /**
@@ -15,7 +17,12 @@ import { CompanyService } from "./company.service";
 export class CompanyController {
   constructor(private readonly companies: CompanyService) {}
 
+  /**
+   * Also open to a service client reading ERP data: it needs the company ids to
+   * send as `x-d365-company`, and the D365 legal entity each one maps to.
+   */
   @Get(API_ROUTES.companies)
+  @AllowServiceToken(D365_DATA_READ_SCOPE)
   list(): Promise<Company[]> {
     return this.companies.list();
   }

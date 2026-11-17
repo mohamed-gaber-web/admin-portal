@@ -198,6 +198,72 @@ export async function verifyMfaChallenge(token: string): Promise<MfaChallengeCla
 }
 
 /**
+ * A third audience, for service clients.
+ *
+ * Same reasoning as MFA_AUDIENCE: `verifyAccessToken` rejects it outright, so a
+ * service token cannot reach any route that has not explicitly opted in with
+ * `@AllowServiceToken`. Widening a user token's claims instead would make every
+ * existing route one missing permission check away from accepting a machine.
+ */
+const SERVICE_AUDIENCE = "growpath-service";
+
+/** As short as a user's access token. The client re-exchanges its secret. */
+export const SERVICE_TOKEN_TTL_SECONDS = ACCESS_TOKEN_TTL_SECONDS;
+
+export interface ServiceTokenClaims {
+  /** The service_client row id. */
+  serviceClientId: string;
+  tenantId: string;
+  tenantSlug: string;
+  scopes: string[];
+}
+
+export async function issueServiceToken(claims: ServiceTokenClaims): Promise<IssuedAccessToken> {
+  const token = await new SignJWT({
+    tenantId: claims.tenantId,
+    tenantSlug: claims.tenantSlug,
+    scopes: claims.scopes
+  })
+    .setProtectedHeader({ alg: ALGORITHM })
+    .setSubject(claims.serviceClientId)
+    .setIssuer(ISSUER)
+    .setAudience(SERVICE_AUDIENCE)
+    .setIssuedAt()
+    .setExpirationTime(`${SERVICE_TOKEN_TTL_SECONDS}s`)
+    .sign(signingKey());
+
+  return { token, expiresIn: SERVICE_TOKEN_TTL_SECONDS };
+}
+
+/** Verifies a service token, or null if it cannot be trusted. */
+export async function verifyServiceToken(token: string): Promise<ServiceTokenClaims | null> {
+  try {
+    const { payload } = await jwtVerify(token, signingKey(), {
+      issuer: ISSUER,
+      audience: SERVICE_AUDIENCE,
+      algorithms: [ALGORITHM]
+    });
+    const { sub, tenantId, tenantSlug, scopes } = payload as JWTPayload & {
+      tenantId?: unknown;
+      tenantSlug?: unknown;
+      scopes?: unknown;
+    };
+    if (
+      typeof sub !== "string" ||
+      typeof tenantId !== "string" ||
+      typeof tenantSlug !== "string" ||
+      !Array.isArray(scopes) ||
+      !scopes.every((entry) => typeof entry === "string")
+    ) {
+      return null;
+    }
+    return { serviceClientId: sub, tenantId, tenantSlug, scopes: scopes as string[] };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Reads claims from a verified payload, rejecting anything malformed.
  *
  * A signature proves the payload was not altered; it does not prove the payload

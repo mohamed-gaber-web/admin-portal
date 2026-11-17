@@ -45,6 +45,14 @@ export interface DeclaredRoute {
  * route quietly stopped auditing", and the guard would have to ignore both.
  */
 export const NON_ROUTE_AUDIT_ACTIONS: { action: string; note: string }[] = [
+  {
+    action: "service_client.created",
+    note: "Written by `pnpm service-client -- create`. Service clients are minted from a shell on a machine holding the database credentials, like platform administrators — an endpoint that could mint a credential into a customer's ERP is not one worth having."
+  },
+  {
+    action: "service_client.revoked",
+    note: "Written by `pnpm service-client -- revoke`, for the same reason creation is a CLI."
+  },
   // `tenant.soft_deleted` and `tenant.restored` used to be held here, written by
   // softDeleteTenant() and restoreTenant() since US-010 with no endpoint that
   // reached them. PATCH /platform/tenants/:id/status now does, and claims them
@@ -137,6 +145,15 @@ export const DECLARED_ROUTES: DeclaredRoute[] = [
     audits: [],
     noAuditReason:
       "Recorded in auth_event as mfa.succeeded / mfa.failed, alongside the sign-in attempt it belongs to. Consistent with login: authentication outcomes live in auth_event, not audit_log."
+  },
+  {
+    method: "POST",
+    path: "/auth/service-token",
+    visibility: "public",
+    note: "Exchanges a service client's id and secret for a 15-minute token (scheduled jobs such as a reporting sync, which cannot answer MFA or share a single-use refresh token). Necessarily unauthenticated, throttled with the rest of /auth. The token carries its own audience, so AccessTokenGuard accepts it only on GET handlers marked @AllowServiceToken with a matching scope — today GET /d365/data/* and GET /companies. Unknown id, wrong secret, revoked client and archived tenant all answer one identical 401.",
+    audits: [],
+    noAuditReason:
+      "Recorded in auth_event as service_token.issued / service_token.rejected, like every other authentication outcome. An attempt with an unknown client id has no tenant, and audit_log.tenant_id is NOT NULL."
   },
   {
     method: "POST",

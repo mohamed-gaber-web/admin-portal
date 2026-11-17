@@ -17,7 +17,8 @@
     "db:migrate": "node scripts/with-env.mjs pnpm --filter @growpath/db migrate:up",
     "db:rollback": "node scripts/with-env.mjs pnpm --filter @growpath/db migrate:down",
     "seed": "pnpm --filter @growpath/db seed",
-    "platform-admin": "pnpm --filter @growpath/db platform-admin"
+    "platform-admin": "pnpm --filter @growpath/db platform-admin",
+    "service-client": "pnpm --filter @growpath/db service-client"
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",

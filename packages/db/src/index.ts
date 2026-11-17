@@ -234,6 +234,26 @@ export {
   type RevokedSession
 } from "./refresh-tokens";
 export {
+  createServiceClient,
+  revokeServiceClient,
+  listServiceClients,
+  authenticateServiceClient,
+  generateServiceClientId,
+  generateServiceClientSecret,
+  hashServiceClientSecret,
+  D365_DATA_READ_SCOPE,
+  SERVICE_CLIENT_SCOPES,
+  INVALID_CLIENT_MESSAGE,
+  type ServiceClientScope,
+  type ServiceClientRecord,
+  type CreatedServiceClient,
+  type CreateServiceClientInput,
+  type RevokeServiceClientInput,
+  type AuthenticatedServiceClient,
+  type ServiceClientAuthentication,
+  type AuthenticateServiceClientInput
+} from "./service-clients";
+export {
   authenticate,
   loadAuthenticatedUser,
   loadPermissions,

@@ -231,3 +231,40 @@ export const mfaEnabledSchema = z
   .strict();
 
 export type MfaEnabled = z.infer<typeof mfaEnabledSchema>;
+
+/**
+ * Payload accepted when a service client asks for a token.
+ *
+ * Client id and secret in the body, like every other credential this API takes
+ * (no Basic auth, so there is one parsing path). Both are opaque strings minted
+ * by `pnpm service-client -- create`.
+ */
+export const serviceTokenRequestSchema = z.object({
+  clientId: z.string().min(1).max(200),
+  clientSecret: z.string().min(1).max(200)
+});
+
+export type ServiceTokenRequest = z.infer<typeof serviceTokenRequestSchema>;
+
+/**
+ * What a successful service-client exchange returns.
+ *
+ * No refresh token: the client holds its secret and simply asks again, which
+ * is what makes it safe to run from several processes at once. The token's
+ * audience is not the one ordinary routes accept, so it reaches only the routes
+ * that opt in (read-only ERP data and the company list).
+ */
+export const serviceTokenSchema = z
+  .object({
+    status: z.literal("authenticated"),
+    tenant: z
+      .object({ id: z.string().uuid(), slug: z.string(), name: z.string() })
+      .strict(),
+    accessToken: z.string().min(1),
+    tokenType: z.literal("Bearer"),
+    expiresIn: z.number().int().positive(),
+    scopes: z.array(z.string())
+  })
+  .strict();
+
+export type ServiceToken = z.infer<typeof serviceTokenSchema>;

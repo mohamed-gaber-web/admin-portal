@@ -13,7 +13,8 @@
     "migrate:create": "node-pg-migrate create",
     "preflight": "node dist/preflight-cli.js",
     "seed": "node dist/seed-cli.js",
-    "platform-admin": "node dist/platform-admin-cli.js"
+    "platform-admin": "node dist/platform-admin-cli.js",
+    "service-client": "node dist/service-client-cli.js"
   },
   "dependencies": {
     "@growpath/observability": "workspace:*",

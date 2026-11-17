@@ -9,6 +9,7 @@ import {
   logoutSchema,
   refreshSchema,
   requestPasswordResetSchema,
+  serviceTokenRequestSchema,
   signInSchema,
   verifyMfaSchema,
   type AcceptInvitationInput,
@@ -23,6 +24,8 @@ import {
   type PasswordResetRequested,
   type RefreshInput,
   type RequestPasswordResetInput,
+  type ServiceToken,
+  type ServiceTokenRequest,
   type SignInInput,
   type SignInResponse,
   type VerifyMfaInput
@@ -153,6 +156,22 @@ export class AuthController {
     @Headers("user-agent") userAgent: string
   ): Promise<Authenticated> {
     return this.auth.verifyMfa(dto, ip || null, userAgent || null);
+  }
+
+  /**
+   * Exchanges a service client's credentials for a short-lived read-only token.
+   *
+   * Unauthenticated by necessity, and throttled like the rest of this
+   * controller. 200, not 201: from the caller's side nothing is created.
+   */
+  @Post(API_ROUTES.serviceToken)
+  @HttpCode(200)
+  serviceToken(
+    @Body(new ZodValidationPipe(serviceTokenRequestSchema)) dto: ServiceTokenRequest,
+    @Ip() ip: string,
+    @Headers("user-agent") userAgent: string
+  ): Promise<ServiceToken> {
+    return this.auth.issueServiceToken(dto, ip || null, userAgent || null);
   }
 
   /**

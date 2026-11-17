@@ -8,9 +8,11 @@ import {
 import {
   acceptInvitation,
   authenticate,
+  authenticateServiceClient,
   beginMfaEnrolment,
   completePasswordReset,
   confirmMfaEnrolment,
+  INVALID_CLIENT_MESSAGE,
   INVALID_CREDENTIALS_MESSAGE,
   INVALID_SESSION_MESSAGE,
   InvalidInvitationError,
@@ -43,6 +45,8 @@ import type {
   PasswordResetRequested,
   RefreshInput,
   RequestPasswordResetInput,
+  ServiceToken,
+  ServiceTokenRequest,
   SignInInput,
   SignInResponse,
   VerifyMfaInput
@@ -51,7 +55,12 @@ import { apiLogger } from "../observability/logger";
 import type { Pool } from "pg";
 import { DATABASE_POOL } from "../database/database.module";
 import { EmailService } from "../email/email.service";
-import { issueAccessToken, issueMfaChallenge, verifyMfaChallenge } from "./tokens";
+import {
+  issueAccessToken,
+  issueMfaChallenge,
+  issueServiceToken,
+  verifyMfaChallenge
+} from "./tokens";
 
 @Injectable()
 export class AuthService {
@@ -410,6 +419,56 @@ export class AuthService {
     }
 
     return { status: "reset", email: result.reset.email };
+  }
+
+  /**
+   * Exchanges a service client's id and secret for a short-lived read token.
+   *
+   * Unscoped like sign-in: the client id is what resolves the tenant. The
+   * auth_event is written inside the transaction, and the 401 is thrown after
+   * it commits, so a failed exchange is still on record.
+   */
+  async issueServiceToken(
+    input: ServiceTokenRequest,
+    ip: string | null,
+    userAgent: string | null
+  ): Promise<ServiceToken> {
+    const result = await withoutTenantScope(
+      this.pool,
+      {
+        reason:
+          "A service client exchanges its secret before any tenant context exists; the client id resolves the tenant."
+      },
+      (client) =>
+        authenticateServiceClient(client, {
+          clientId: input.clientId,
+          clientSecret: input.clientSecret,
+          ip,
+          userAgent
+        })
+    );
+
+    if (!result.ok) {
+      // One message for unknown, wrong secret, revoked and archived tenant.
+      throw new UnauthorizedException({ message: INVALID_CLIENT_MESSAGE });
+    }
+
+    const { client } = result;
+    const { token, expiresIn } = await issueServiceToken({
+      serviceClientId: client.id,
+      tenantId: client.tenantId,
+      tenantSlug: client.tenantSlug,
+      scopes: client.scopes
+    });
+
+    return {
+      status: "authenticated",
+      tenant: { id: client.tenantId, slug: client.tenantSlug, name: client.tenantName },
+      accessToken: token,
+      tokenType: "Bearer",
+      expiresIn,
+      scopes: client.scopes
+    };
   }
 
   /** The response shape shared by sign-in and refresh. */

@@ -41,6 +41,14 @@ export const API_ROUTES = {
   /** Confirms enrolment with a code from the authenticator app. */
   confirmMfa: "/auth/mfa/confirm",
   /**
+   * Exchanges a service client's id and secret for a short-lived, read-only token.
+   *
+   * For scheduled jobs (e.g. a reporting sync) that cannot answer MFA and must not
+   * share a single-use refresh token. The token it returns carries a different
+   * audience, so it is accepted only by routes that explicitly opt in.
+   */
+  serviceToken: "/auth/service-token",
+  /**
    * The caller's own companies. There is no tenant in the path: the tenant comes
    * from the access token's claims, so there is nothing here to iterate.
    */
